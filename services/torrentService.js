@@ -15,7 +15,19 @@ class TorrentService {
       
       const engine = torrentStream(magnetUrl, {
         tmp: fileService.getTempDir(),
-        path: fileService.getStreamDir(streamId)
+        path: fileService.getStreamDir(streamId),
+        connections: 100,     // Allow more connections
+        uploads: 10,          // Allow more uploads to get better reciprocation
+        verify: true,         // Verify pieces
+        dht: true,            // Enable DHT
+        tracker: true,        // Enable trackers
+        trackers: [           // Add additional trackers
+          'udp://tracker.openbittorrent.com:80',
+          'udp://tracker.opentrackr.org:1337/announce',
+          'udp://tracker.coppersurfer.tk:6969/announce',
+          'udp://exodus.desync.com:6969/announce',
+          'udp://tracker.torrent.eu.org:451/announce'
+        ]
       });
 
       this.activeEngines.set(streamId, engine);
@@ -24,6 +36,8 @@ class TorrentService {
         console.log(`📦 Torrent ready for stream ${streamId}`);
         console.log(`📁 Torrent contains ${engine.files.length} files`);
         console.log(`💾 Total torrent size: ${this.formatFileSize(engine.torrent.length)}`);
+        console.log(`🔗 Torrent info hash: ${engine.torrent.infoHash}`);
+        console.log(`👥 Initial peers: ${engine.swarm.wires.length}`);
         
         // Log torrent structure for debugging
         this.logTorrentStructure(engine.files);
@@ -50,9 +64,13 @@ class TorrentService {
 
         // Select the file for download
         videoFile.select();
+        console.log(`✅ Video file selected for download`);
 
         // Start periodic progress checking
         this.startProgressMonitoring(streamId, engine);
+        
+        // Start swarm monitoring
+        this.startSwarmMonitoring(streamId, engine);
 
         // Start FFmpeg conversion when file starts downloading
         this.startFFmpegConversion(streamId, videoFile, engine);
@@ -72,6 +90,25 @@ class TorrentService {
         console.error(`❌ Torrent error for stream ${streamId}:`, error);
         streamManager.updateStreamStatus(streamId, 'error', error.message);
         this.cleanup(streamId);
+      });
+
+      // Add more detailed event logging
+      engine.on('peer', (peer) => {
+        console.log(`👋 New peer connected for stream ${streamId}: ${peer.remoteAddress}`);
+      });
+
+      engine.on('noPeers', () => {
+        console.log(`😞 No peers found for stream ${streamId} - torrent might be dead`);
+      });
+
+      // Monitor when pieces are downloaded
+      engine.on('hotswap', () => {
+        console.log(`🔥 Hotswap event for stream ${streamId}`);
+      });
+
+      // Log when torrent is fully downloaded
+      engine.on('idle', () => {
+        console.log(`💤 Torrent idle for stream ${streamId} - download complete`);
       });
 
     } catch (error) {
@@ -186,6 +223,39 @@ class TorrentService {
         console.log(`    ... and ${files.length - 5} more files`);
       }
     });
+  }
+
+  startSwarmMonitoring(streamId, engine) {
+    const monitorSwarm = () => {
+      if (!this.activeEngines.has(streamId)) {
+        return;
+      }
+
+      try {
+        const swarm = engine.swarm;
+        const peers = swarm.wires.length;
+        const activePeers = swarm.wires.filter(wire => !wire.peerChoking).length;
+        const downloadSpeed = Math.round(swarm.downloadSpeed() / 1024); // KB/s
+        const uploadSpeed = Math.round(swarm.uploadSpeed() / 1024); // KB/s
+        
+        console.log(`🕸️ Swarm status - Stream ${streamId}:`);
+        console.log(`  👥 Peers: ${peers} (${activePeers} active)`);
+        console.log(`  ⬇️ Download: ${downloadSpeed} KB/s`);
+        console.log(`  ⬆️ Upload: ${uploadSpeed} KB/s`);
+        console.log(`  📊 Downloaded: ${this.formatFileSize(swarm.downloaded)}`);
+        
+        if (peers === 0) {
+          console.log(`  ⚠️ No peers connected - torrent might be dead or need more time`);
+        }
+        
+        setTimeout(monitorSwarm, 5000); // Check every 5 seconds
+      } catch (error) {
+        console.error(`❌ Error monitoring swarm for stream ${streamId}:`, error);
+      }
+    };
+
+    // Start monitoring after a short delay
+    setTimeout(monitorSwarm, 2000);
   }
 
   startProgressMonitoring(streamId, engine) {
