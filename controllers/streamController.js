@@ -1,4 +1,6 @@
 const { v4: uuidv4 } = require('uuid');
+const fs = require('fs');
+const path = require('path');
 const torrentService = require('../services/torrentService');
 const ffmpegService = require('../services/ffmpegService');
 const fileService = require('../services/fileService');
@@ -48,13 +50,18 @@ class StreamController {
   async getStream(req, res) {
     try {
       const { id } = req.params;
-      const stream = streamManager.getStream(id);
+      const stream = streamManager.getStreamWithFallback(id);
 
       if (!stream) {
         return res.status(404).json({ 
-          error: 'Stream not found' 
+          error: 'Stream not found',
+          streamId: id,
+          timestamp: new Date().toISOString()
         });
       }
+
+      // Keep stream alive when accessed
+      streamManager.keepStreamAlive(id);
 
       if (stream.status !== 'ready') {
         return res.status(202).json({
@@ -88,13 +95,18 @@ class StreamController {
   async getStreamStatus(req, res) {
     try {
       const { id } = req.params;
-      const stream = streamManager.getStream(id);
+      const stream = streamManager.getStreamWithFallback(id);
 
       if (!stream) {
         return res.status(404).json({ 
-          error: 'Stream not found' 
+          error: 'Stream not found',
+          streamId: id,
+          timestamp: new Date().toISOString()
         });
       }
+
+      // Keep stream alive when status is checked
+      streamManager.keepStreamAlive(id);
 
       res.json({
         streamId: id,
@@ -116,13 +128,18 @@ class StreamController {
   async getHLSFile(req, res) {
     try {
       const { id, file } = req.params;
-      const stream = streamManager.getStream(id);
+      const stream = streamManager.getStreamWithFallback(id);
 
       if (!stream) {
         return res.status(404).json({ 
-          error: 'Stream not found' 
+          error: 'Stream not found',
+          streamId: id,
+          timestamp: new Date().toISOString()
         });
       }
+
+      // Keep stream alive when HLS files are accessed
+      streamManager.keepStreamAlive(id);
 
       const filePath = fileService.getHLSFilePath(id, file);
       
@@ -132,7 +149,21 @@ class StreamController {
         });
       }
 
-          // Handle range requests for .ts files (HTTP 206 partial content)
+      // Get file stats and content type
+      const stats = fs.statSync(filePath);
+      const fileSize = stats.size;
+      
+      // Determine content type based on file extension
+      let contentType;
+      if (file.endsWith('.m3u8')) {
+        contentType = 'application/vnd.apple.mpegurl';
+      } else if (file.endsWith('.ts')) {
+        contentType = 'video/mp2t';
+      } else {
+        contentType = 'application/octet-stream';
+      }
+
+      // Handle range requests for .ts files (HTTP 206 partial content)
     const range = req.headers.range;
     
     // Enhanced logging for HTTP 206 debugging

@@ -870,8 +870,9 @@ class TorrentService {
           // If no peers and stalled for a while, declare torrent dead
           if (peers === 0 && stallCount >= 6) { // 60 seconds with no peers
             console.log(`💀 Torrent appears dead - no peers for ${stallCount * 10}s`);
-            streamManager.updateStreamStatus(streamId, 'error', 'Torrent appears to be dead (no peers found)');
-            this.cleanup(streamId);
+            console.log(`⚠️ WARNING: Not cleaning up stream to allow manual retry - you may need to try a different torrent`);
+            streamManager.updateStreamStatus(streamId, 'error', 'No peers found - torrent may be dead. Try a different magnet URL.');
+            // Don't call this.cleanup(streamId) here - let the user retry or manually clean up
             return;
           }
         }

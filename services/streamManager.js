@@ -11,11 +11,13 @@ class StreamManager {
       progress: 0,
       error: null,
       createdAt: new Date(),
-      updatedAt: new Date()
+      updatedAt: new Date(),
+      accessCount: 0,
+      lastAccessed: new Date()
     };
 
     this.streams.set(streamId, stream);
-    console.log(`📊 Created stream ${streamId}`);
+    console.log(`📊 Created stream ${streamId} at ${stream.createdAt.toISOString()}`);
     
     return stream;
   }
@@ -70,7 +72,13 @@ class StreamManager {
 
     return Array.from(this.streams.values()).filter(stream => {
       const age = now - stream.updatedAt;
-      return age > maxAge;
+      const isOld = age > maxAge;
+      
+      // Don't consider streams as "old" if they're still actively downloading or converting
+      const isActive = ['downloading', 'converting'].includes(stream.status);
+      
+      // Only return streams that are old AND not actively working
+      return isOld && !isActive;
     });
   }
 
@@ -105,6 +113,32 @@ class StreamManager {
         updatedAt: stream.updatedAt
       }))
     };
+  }
+
+  streamExists(streamId) {
+    return this.streams.has(streamId);
+  }
+
+  getStreamWithFallback(streamId) {
+    const stream = this.streams.get(streamId);
+    if (!stream) {
+      console.log(`⚠️ Stream ${streamId} not found in manager. Current streams: ${Array.from(this.streams.keys()).join(', ')}`);
+      return null;
+    }
+    return stream;
+  }
+
+  // Keep streams alive by updating their timestamp
+  keepStreamAlive(streamId) {
+    const stream = this.streams.get(streamId);
+    if (stream) {
+      stream.updatedAt = new Date();
+      stream.lastAccessed = new Date();
+      stream.accessCount = (stream.accessCount || 0) + 1;
+      console.log(`❤️ Keeping stream ${streamId} alive (accessed ${stream.accessCount} times, last: ${stream.lastAccessed.toISOString()})`);
+      return true;
+    }
+    return false;
   }
 }
 

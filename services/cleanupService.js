@@ -43,18 +43,37 @@ class CleanupService {
 
       const startTime = Date.now();
       
-      // Get old streams before cleanup
-      const oldStreams = streamManager.getOldStreams(maxAgeMinutes);
+      // Get old streams but be more conservative - only clean up truly old or failed streams
+      const allStreams = streamManager.getAllStreams();
+      const now = new Date();
+      const maxAge = maxAgeMinutes * 60 * 1000;
       
-      if (oldStreams.length === 0) {
+      const streamsToCleanup = allStreams.filter(stream => {
+        const age = now - stream.updatedAt;
+        const isOld = age > maxAge;
+        const isFailedOrComplete = ['error', 'completed'].includes(stream.status);
+        
+        // Only cleanup if:
+        // 1. Stream is very old (more than maxAge) OR
+        // 2. Stream has failed AND is at least 5 minutes old
+        const shouldCleanup = isOld || (isFailedOrComplete && age > 5 * 60 * 1000);
+        
+        if (shouldCleanup) {
+          console.log(`🧹 Marking for cleanup: ${stream.id} (status: ${stream.status}, age: ${Math.round(age / (60 * 1000))} minutes)`);
+        }
+        
+        return shouldCleanup;
+      });
+      
+      if (streamsToCleanup.length === 0) {
         console.log('✅ No old streams to clean up');
         return;
       }
 
-      console.log(`🗑️ Found ${oldStreams.length} old streams to clean up`);
+      console.log(`🗑️ Found ${streamsToCleanup.length} streams to clean up`);
 
       // Stop any active torrent downloads and FFmpeg processes
-      for (const stream of oldStreams) {
+      for (const stream of streamsToCleanup) {
         try {
           // Stop torrent download
           torrentService.cleanup(stream.id);
