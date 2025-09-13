@@ -11,7 +11,7 @@ services:
     image: torrent-hls-streamer:latest
     container_name: torrent-hls-streamer
     ports:
-      - "3000:3000"
+      - "3001:3000"
     environment:
       - NODE_ENV=production
       - PORT=3000
