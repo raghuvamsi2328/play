@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Torrent HLS Streamer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            overflow: hidden;
+        }
+
+        .header {
+            background: #2c3e50;
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            opacity: 0.8;
+            font-size: 1.1em;
+        }
+
+        .content {
+            padding: 40px;
+        }
+
+        .form-section {
+            margin-bottom: 40px;
+        }
+
+        .form-section h2 {
+            color: #2c3e50;
+            margin-bottom: 20px;
+            font-size: 1.5em;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #34495e;
+        }
+
+        input[type="text"], input[type="url"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+
+        input[type="text"]:focus, input[type="url"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .status-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .status-item {
+            margin-bottom: 10px;
+        }
+
+        .status-label {
+            font-weight: 600;
+            display: inline-block;
+            width: 120px;
+        }
+
+        .status-value {
+            color: #666;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #e0e0e0;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            transition: width 0.3s ease;
+            border-radius: 10px;
+        }
+
+        .video-section {
+            margin-top: 30px;
+        }
+
+        video {
+            width: 100%;
+            max-width: 800px;
+            height: auto;
+            border-radius: 8px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 20px 0;
+        }
+
+        .success {
+            background: #d4edda;
+            color: #155724;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 20px 0;
+        }
+
+        .logs {
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            max-height: 300px;
+            overflow-y: auto;
+            margin-top: 20px;
+        }
+
+        .example-magnets {
+            background: #e8f4fd;
+            padding: 15px;
+            border-radius: 6px;
+            margin-top: 15px;
+        }
+
+        .example-magnets h4 {
+            margin-bottom: 10px;
+            color: #2c3e50;
+        }
+
+        .example-magnets p {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 8px;
+        }
+
+        .example-magnets code {
+            display: block;
+            background: white;
+            padding: 8px;
+            border-radius: 4px;
+            margin: 5px 0;
+            word-break: break-all;
+            font-size: 11px;
+            cursor: pointer;
+        }
+
+        .example-magnets code:hover {
+            background: #f0f0f0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🧲 Torrent HLS Streamer</h1>
+            <p>Stream torrents directly in your browser with HLS</p>
+        </div>
+
+        <div class="content">
+            <!-- Stream Creation Section -->
+            <div class="form-section">
+                <h2>📥 Create Stream</h2>
+                <div class="form-group">
+                    <label for="magnetUrl">Magnet URL:</label>
+                    <input type="url" id="magnetUrl" placeholder="magnet:?xt=urn:btih:..." />
+                </div>
+                <button class="btn" onclick="createStream()">Create Stream</button>
+
+                <!-- Example Magnets -->
+                <div class="example-magnets">
+                    <h4>📋 Example Magnet URLs (for testing):</h4>
+                    <p><strong>Note:</strong> These are example public domain content. Click to use:</p>
+                    <code onclick="useMagnet(this)">magnet:?xt=urn:btih:c12fe1c06bba254a9dc9f519b335aa7c1367a88a</code>
+                    <code onclick="useMagnet(this)">magnet:?xt=urn:btih:a88fda5954e89178c372716a6a78b8180ed4dad3</code>
+                </div>
+            </div>
+
+            <!-- Status Section -->
+            <div class="status-section hidden" id="statusSection">
+                <h2>📊 Stream Status</h2>
+                <div class="status-item">
+                    <span class="status-label">Stream ID:</span>
+                    <span class="status-value" id="streamId">-</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Status:</span>
+                    <span class="status-value" id="streamStatus">-</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Progress:</span>
+                    <span class="status-value" id="streamProgress">0%</span>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <!-- Video Player Section -->
+            <div class="video-section hidden" id="videoSection">
+                <h2>📺 Video Player</h2>
+                <video id="videoPlayer" controls>
+                    Your browser does not support the video tag.
+                </video>
+            </div>
+
+            <!-- Logs Section -->
+            <div class="logs hidden" id="logsSection">
+                <h2>📋 Logs</h2>
+                <div id="logs"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentStreamId = null;
+        let statusInterval = null;
+        const API_BASE = window.location.origin;
+
+        function log(message) {
+            const logsDiv = document.getElementById('logs');
+            const logsSection = document.getElementById('logsSection');
+            const timestamp = new Date().toLocaleTimeString();
+            
+            logsDiv.innerHTML += `[${timestamp}] ${message}\n`;
+            logsDiv.scrollTop = logsDiv.scrollHeight;
+            logsSection.classList.remove('hidden');
+        }
+
+        function showError(message) {
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'error';
+            errorDiv.textContent = message;
+            document.querySelector('.content').appendChild(errorDiv);
+            
+            setTimeout(() => errorDiv.remove(), 5000);
+            log(`❌ Error: ${message}`);
+        }
+
+        function showSuccess(message) {
+            const successDiv = document.createElement('div');
+            successDiv.className = 'success';
+            successDiv.textContent = message;
+            document.querySelector('.content').appendChild(successDiv);
+            
+            setTimeout(() => successDiv.remove(), 5000);
+            log(`✅ Success: ${message}`);
+        }
+
+        function useMagnet(element) {
+            document.getElementById('magnetUrl').value = element.textContent;
+        }
+
+        async function createStream() {
+            const magnetUrl = document.getElementById('magnetUrl').value;
+            
+            if (!magnetUrl) {
+                showError('Please enter a magnet URL');
+                return;
+            }
+
+            log(`🚀 Creating stream for magnet: ${magnetUrl}`);
+
+            try {
+                const response = await fetch(`${API_BASE}/stream`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ magnetUrl })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to create stream');
+                }
+
+                currentStreamId = data.streamId;
+                document.getElementById('streamId').textContent = currentStreamId;
+                document.getElementById('statusSection').classList.remove('hidden');
+
+                showSuccess(`Stream created! ID: ${currentStreamId}`);
+                log(`📊 Stream ID: ${currentStreamId}`);
+
+                // Start polling for status
+                startStatusPolling();
+
+            } catch (error) {
+                showError(`Failed to create stream: ${error.message}`);
+            }
+        }
+
+        async function checkStreamStatus() {
+            if (!currentStreamId) return;
+
+            try {
+                const response = await fetch(`${API_BASE}/stream/${currentStreamId}/status`);
+                const data = await response.json();
+
+                if (response.ok) {
+                    document.getElementById('streamStatus').textContent = data.status;
+                    document.getElementById('streamProgress').textContent = `${data.progress}%`;
+                    document.getElementById('progressFill').style.width = `${data.progress}%`;
+
+                    log(`📊 Status: ${data.status}, Progress: ${data.progress}%`);
+
+                    if (data.status === 'ready') {
+                        showSuccess('Stream is ready! Loading video player...');
+                        loadVideoPlayer();
+                        stopStatusPolling();
+                    } else if (data.status === 'error') {
+                        showError(`Stream error: ${data.error || 'Unknown error'}`);
+                        stopStatusPolling();
+                    }
+                } else {
+                    log(`⚠️ Status check failed: ${data.error}`);
+                }
+
+            } catch (error) {
+                log(`❌ Error checking status: ${error.message}`);
+            }
+        }
+
+        function startStatusPolling() {
+            if (statusInterval) clearInterval(statusInterval);
+            statusInterval = setInterval(checkStreamStatus, 2000); // Check every 2 seconds
+        }
+
+        function stopStatusPolling() {
+            if (statusInterval) {
+                clearInterval(statusInterval);
+                statusInterval = null;
+            }
+        }
+
+        async function loadVideoPlayer() {
+            const videoSection = document.getElementById('videoSection');
+            const videoPlayer = document.getElementById('videoPlayer');
+
+            try {
+                // Check if HLS is supported
+                if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
+                    // Native HLS support (Safari, iOS)
+                    videoPlayer.src = `${API_BASE}/stream/${currentStreamId}`;
+                    log('📺 Loading video with native HLS support');
+                } else {
+                    // Use hls.js for other browsers
+                    if (typeof Hls !== 'undefined' && Hls.isSupported()) {
+                        const hls = new Hls();
+                        hls.loadSource(`${API_BASE}/stream/${currentStreamId}`);
+                        hls.attachMedia(videoPlayer);
+                        log('📺 Loading video with hls.js');
+                    } else {
+                        throw new Error('HLS is not supported in this browser');
+                    }
+                }
+
+                videoSection.classList.remove('hidden');
+                log('✅ Video player loaded successfully');
+
+            } catch (error) {
+                showError(`Failed to load video player: ${error.message}`);
+            }
+        }
+
+        // Load hls.js for browsers that don't support HLS natively
+        const hlsScript = document.createElement('script');
+        hlsScript.src = 'https://cdn.jsdelivr.net/npm/hls.js@latest';
+        document.head.appendChild(hlsScript);
+
+        // Health check on page load
+        window.addEventListener('load', async () => {
+            try {
+                const response = await fetch(`${API_BASE}/health`);
+                const data = await response.json();
+                
+                if (response.ok) {
+                    log('✅ Server is healthy and running');
+                } else {
+                    log('⚠️ Server health check failed');
+                }
+            } catch (error) {
+                log('❌ Cannot connect to server');
+            }
+        });
+    </script>
+</body>
+</html>

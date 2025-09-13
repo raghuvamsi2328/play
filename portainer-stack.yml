@@ -1,0 +1,40 @@
+# Torrent HLS Streamer - Portainer Stack
+
+stack_name: torrent-hls-streamer
+
+# Copy and paste this docker-compose.yml content into Portainer
+
+version: '3.8'
+
+services:
+  torrent-hls-streamer:
+    image: torrent-hls-streamer:latest
+    container_name: torrent-hls-streamer
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    volumes:
+      - torrent_temp:/app/temp
+    restart: unless-stopped
+    networks:
+      - torrent-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.torrent-streamer.rule=Host(`torrent-streamer.local`)"
+      - "traefik.http.services.torrent-streamer.loadbalancer.server.port=3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) }).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  torrent_temp:
+    driver: local
+
+networks:
+  torrent-network:
+    driver: bridge
