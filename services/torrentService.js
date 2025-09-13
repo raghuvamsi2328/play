@@ -52,7 +52,7 @@ class TorrentService {
         videoFile.select();
 
         // Start FFmpeg conversion when file starts downloading
-        this.startFFmpegConversion(streamId, videoFile);
+        this.startFFmpegConversion(streamId, videoFile, engine);
       });
 
       engine.on('download', (index) => {
@@ -180,14 +180,14 @@ class TorrentService {
     });
   }
 
-  async startFFmpegConversion(streamId, videoFile) {
+  async startFFmpegConversion(streamId, videoFile, engine) {
     try {
       console.log(`🔄 Starting FFmpeg conversion for stream ${streamId}`);
       console.log(`📁 Video file: ${videoFile.name}`);
       console.log(`📊 File size: ${this.formatFileSize(videoFile.length)}`);
       
       // Wait for some data to be available
-      await this.waitForFileData(videoFile);
+      await this.waitForFileData(videoFile, engine);
       
       const inputPath = path.join(fileService.getStreamDir(streamId), videoFile.name);
       const outputDir = fileService.getHLSDir(streamId);
@@ -216,19 +216,23 @@ class TorrentService {
     }
   }
 
-  async waitForFileData(file, minBytes = 1024 * 1024) { // Wait for 1MB
+  async waitForFileData(file, engine, minBytes = 1024 * 1024) { // Wait for 1MB
     return new Promise((resolve) => {
       const checkData = () => {
         const currentDownloaded = file.downloaded || 0;
         const fileSize = file.length || 0;
+        const torrentProgress = engine ? Math.round((engine.swarm.downloaded / engine.torrent.length) * 100) : 0;
+        
         console.log(`📊 File download status: ${this.formatFileSize(currentDownloaded)} / ${this.formatFileSize(fileSize)} (${Math.round((currentDownloaded / fileSize) * 100)}%)`);
+        console.log(`📊 Overall torrent progress: ${torrentProgress}%`);
         
         // If file is fully downloaded or we have enough data, proceed
-        if (currentDownloaded >= fileSize || currentDownloaded >= minBytes) {
-          console.log(`✅ Sufficient data available for FFmpeg conversion`);
+        // Also proceed if torrent is at least 10% downloaded (should have enough data for streaming)
+        if (currentDownloaded >= fileSize || currentDownloaded >= minBytes || torrentProgress >= 10) {
+          console.log(`✅ Sufficient data available for FFmpeg conversion (torrent: ${torrentProgress}%, file: ${Math.round((currentDownloaded / fileSize) * 100)}%)`);
           resolve();
         } else {
-          console.log(`⏳ Waiting for more data... need ${this.formatFileSize(minBytes - currentDownloaded)} more`);
+          console.log(`⏳ Waiting for more data... torrent at ${torrentProgress}%, need at least 10% or 1MB file data`);
           setTimeout(checkData, 1000);
         }
       };
