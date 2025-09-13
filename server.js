@@ -10,6 +10,25 @@ const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(cors());
+
+// Enhanced request logging middleware for HTTP 206 debugging
+app.use((req, res, next) => {
+  const timestamp = new Date().toISOString();
+  console.log(`\n🌐 ${timestamp} - ${req.method} ${req.path}`);
+  
+  // Log Range header specifically
+  if (req.headers.range) {
+    console.log(`🎯 Range Header: ${req.headers.range}`);
+  }
+  
+  // Log User-Agent for debugging different clients
+  if (req.headers['user-agent']) {
+    console.log(`🖥️  User-Agent: ${req.headers['user-agent'].substring(0, 50)}...`);
+  }
+  
+  next();
+});
+
 app.use(morgan('combined'));
 app.use(express.json());
 

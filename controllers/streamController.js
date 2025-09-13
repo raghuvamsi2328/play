@@ -132,39 +132,44 @@ class StreamController {
         });
       }
 
-      // Handle range requests for video segments
-      const range = req.headers.range;
-      if (range && file.endsWith('.ts')) {
-        const stat = await fileService.getFileStats(filePath);
-        const fileSize = stat.size;
-        
+          // Handle range requests for .ts files (HTTP 206 partial content)
+    const range = req.headers.range;
+    
+    // Enhanced logging for HTTP 206 debugging
+    console.log(`🔍 Range header: ${range ? range : 'None'}, File: ${file}`);
+    console.log(`📊 User-Agent: ${req.headers['user-agent'] || 'Unknown'}`);
+    
+    if (range && file.endsWith('.ts')) {
         const parts = range.replace(/bytes=/, "").split("-");
         const start = parseInt(parts[0], 10);
         const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-        const chunksize = (end - start) + 1;
-        
-        const stream = fileService.createReadStream(filePath, { start, end });
-        
-        res.writeHead(206, {
-          'Content-Range': `bytes ${start}-${end}/${fileSize}`,
-          'Accept-Ranges': 'bytes',
-          'Content-Length': chunksize,
-          'Content-Type': 'video/mp2t',
-          'Cache-Control': 'public, max-age=31536000'
+        const chunkSize = (end - start) + 1;
+
+        console.log(`🎯 HTTP 206 PARTIAL CONTENT: ${file}`);
+        console.log(`📊 Range: ${start}-${end}/${fileSize} (${chunkSize} bytes)`);
+
+        res.status(206);
+        res.set({
+            'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+            'Accept-Ranges': 'bytes',
+            'Content-Length': chunkSize,
+            'Content-Type': contentType
         });
-        
+
+        const stream = fs.createReadStream(filePath, { start, end });
         stream.pipe(res);
-      } else {
-        // Serve file normally
-        if (file.endsWith('.m3u8')) {
-          res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
-        } else if (file.endsWith('.ts')) {
-          res.setHeader('Content-Type', 'video/mp2t');
-        }
-        
-        res.setHeader('Cache-Control', 'public, max-age=31536000');
-        res.sendFile(filePath);
-      }
+        return;
+    }
+
+    // Serve complete file (HTTP 200)
+    console.log(`📄 HTTP 200 COMPLETE FILE: ${file} (${fileSize} bytes)`);
+    res.set({
+        'Content-Length': fileSize,
+        'Accept-Ranges': 'bytes',
+        'Content-Type': contentType
+    });
+    
+    fs.createReadStream(filePath).pipe(res);
 
     } catch (error) {
       console.error('Error serving HLS file:', error);

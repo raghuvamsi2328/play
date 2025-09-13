@@ -74,7 +74,9 @@ class FFmpegService {
             '-hls_list_size 6', 
             '-c copy',
             '-avoid_negative_ts make_zero',
-            '-y'
+            '-y',
+            '-fflags +genpts', // Generate PTS if missing
+            '-movflags +faststart' // Enable fast start for better streaming
           ])
           .output(outputPlaylist);
 
@@ -92,6 +94,15 @@ class FFmpegService {
             const percent = Math.round(progress.percent);
             console.log(`🔄 FFmpeg progress for stream ${streamId}: ${percent}%`);
             streamManager.updateStreamProgress(streamId, percent);
+            
+            // Update status to ready once we have some segments
+            if (percent >= 10) {
+              streamManager.updateStreamStatus(streamId, 'ready');
+            }
+          } else if (progress.frames) {
+            // For files without duration info, estimate based on frames
+            console.log(`🔄 FFmpeg processing frames: ${progress.frames}`);
+            streamManager.updateStreamStatus(streamId, 'ready'); // Set ready immediately when processing frames
           }
         });
 

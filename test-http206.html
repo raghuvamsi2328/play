@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HTTP 206 Range Request Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f0f2f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background: #f9f9f9;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        #results {
+            background: #000;
+            color: #0f0;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 12px;
+            height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+        input {
+            width: 100%;
+            padding: 8px;
+            margin: 5px 0;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 HTTP 206 Range Request Test</h1>
+        
+        <div class="test-section">
+            <h3>Test Configuration</h3>
+            <label>Stream ID:</label>
+            <input type="text" id="streamId" placeholder="Enter your stream ID">
+            <label>TS File Name:</label>
+            <input type="text" id="tsFile" placeholder="e.g., segment001.ts" value="segment001.ts">
+        </div>
+
+        <div class="test-section">
+            <h3>Range Request Tests</h3>
+            <button onclick="testFullFile()">Test Full File (HTTP 200)</button>
+            <button onclick="testRangeRequest()">Test Range Request (HTTP 206)</button>
+            <button onclick="testMultipleRanges()">Test Multiple Ranges</button>
+            <button onclick="clearResults()">Clear Results</button>
+        </div>
+
+        <div class="test-section">
+            <h3>Results</h3>
+            <div id="results"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+        
+        function log(message) {
+            const results = document.getElementById('results');
+            const timestamp = new Date().toISOString();
+            results.textContent += `[${timestamp}] ${message}\n`;
+            results.scrollTop = results.scrollHeight;
+        }
+
+        function clearResults() {
+            document.getElementById('results').textContent = '';
+        }
+
+        async function testFullFile() {
+            const streamId = document.getElementById('streamId').value;
+            const tsFile = document.getElementById('tsFile').value;
+            
+            if (!streamId || !tsFile) {
+                log('❌ Please enter Stream ID and TS file name');
+                return;
+            }
+
+            log(`🧪 Testing FULL FILE request for ${tsFile}`);
+            
+            try {
+                const response = await fetch(`${API_BASE}/stream/${streamId}/${tsFile}`);
+                
+                log(`📊 Status: ${response.status} ${response.statusText}`);
+                log(`📦 Content-Length: ${response.headers.get('content-length') || 'Not specified'}`);
+                log(`🎯 Accept-Ranges: ${response.headers.get('accept-ranges') || 'Not specified'}`);
+                log(`📄 Content-Type: ${response.headers.get('content-type') || 'Not specified'}`);
+                
+                if (response.ok) {
+                    const blob = await response.blob();
+                    log(`✅ Successfully received ${blob.size} bytes`);
+                } else {
+                    log(`❌ Request failed: ${response.status}`);
+                }
+                
+            } catch (error) {
+                log(`❌ Error: ${error.message}`);
+            }
+        }
+
+        async function testRangeRequest() {
+            const streamId = document.getElementById('streamId').value;
+            const tsFile = document.getElementById('tsFile').value;
+            
+            if (!streamId || !tsFile) {
+                log('❌ Please enter Stream ID and TS file name');
+                return;
+            }
+
+            log(`🎯 Testing RANGE REQUEST for ${tsFile} (first 1000 bytes)`);
+            
+            try {
+                const response = await fetch(`${API_BASE}/stream/${streamId}/${tsFile}`, {
+                    headers: {
+                        'Range': 'bytes=0-999'
+                    }
+                });
+                
+                log(`📊 Status: ${response.status} ${response.statusText}`);
+                log(`📦 Content-Length: ${response.headers.get('content-length') || 'Not specified'}`);
+                log(`🎯 Content-Range: ${response.headers.get('content-range') || 'Not specified'}`);
+                log(`🔄 Accept-Ranges: ${response.headers.get('accept-ranges') || 'Not specified'}`);
+                log(`📄 Content-Type: ${response.headers.get('content-type') || 'Not specified'}`);
+                
+                if (response.status === 206) {
+                    const blob = await response.blob();
+                    log(`✅ HTTP 206 SUCCESS! Received ${blob.size} bytes`);
+                } else if (response.status === 200) {
+                    log(`⚠️ Got HTTP 200 instead of 206 - server may not support ranges`);
+                } else {
+                    log(`❌ Request failed: ${response.status}`);
+                }
+                
+            } catch (error) {
+                log(`❌ Error: ${error.message}`);
+            }
+        }
+
+        async function testMultipleRanges() {
+            const streamId = document.getElementById('streamId').value;
+            const tsFile = document.getElementById('tsFile').value;
+            
+            if (!streamId || !tsFile) {
+                log('❌ Please enter Stream ID and TS file name');
+                return;
+            }
+
+            const ranges = ['0-499', '500-999', '1000-1499'];
+            
+            for (const range of ranges) {
+                log(`🎯 Testing range: bytes=${range}`);
+                
+                try {
+                    const response = await fetch(`${API_BASE}/stream/${streamId}/${tsFile}`, {
+                        headers: {
+                            'Range': `bytes=${range}`
+                        }
+                    });
+                    
+                    log(`  📊 Status: ${response.status}, Content-Length: ${response.headers.get('content-length')}`);
+                    
+                    if (response.status === 206) {
+                        log(`  ✅ HTTP 206 received`);
+                    }
+                    
+                } catch (error) {
+                    log(`  ❌ Error: ${error.message}`);
+                }
+            }
+        }
+
+        // Initialize
+        log('🧪 HTTP 206 Range Request Test Tool Ready');
+        log('📝 Instructions:');
+        log('1. Enter a valid Stream ID from your main app');
+        log('2. Enter a TS file name (or keep default)');
+        log('3. Run tests to see HTTP 206 in action');
+        log('');
+    </script>
+</body>
+</html>
