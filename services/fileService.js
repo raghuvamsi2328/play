@@ -14,15 +14,19 @@ class FileService {
   }
 
   getStreamDir(streamId) {
-    // Sanitize streamId to prevent path issues
-    const sanitizedId = streamId.replace(/[^a-zA-Z0-9-]/g, '');
-    return path.join(this.tempDir, 'streams', sanitizedId);
+    // Use a simple hash of the streamId to create short, safe directory names
+    const crypto = require('crypto');
+    const hash = crypto.createHash('md5').update(streamId).digest('hex').substring(0, 8);
+    console.log(`🔧 Stream ID hash: ${streamId} -> ${hash}`);
+    return path.join(this.tempDir, 'streams', hash);
   }
 
   getHLSDir(streamId) {
-    // Sanitize streamId to prevent path issues
-    const sanitizedId = streamId.replace(/[^a-zA-Z0-9-]/g, '');
-    return path.join(this.tempDir, 'hls', sanitizedId);
+    // Use a simple hash of the streamId to create short, safe directory names
+    const crypto = require('crypto');
+    const hash = crypto.createHash('md5').update(streamId).digest('hex').substring(0, 8);
+    console.log(`🔧 Stream ID hash: ${streamId} -> ${hash}`);
+    return path.join(this.tempDir, 'hls', hash);
   }
 
   getHLSPlaylistPath(streamId) {
