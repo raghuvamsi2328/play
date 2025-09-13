@@ -12,7 +12,7 @@ class TorrentService {
   async startDownload(streamId, magnetUrl) {
     try {
       console.log(`🌊 Starting torrent download for stream ${streamId}`);
-      console.log(`🔄 Using sequential download strategy for better streaming compatibility`);
+      console.log(`🔄 Using enhanced tracker configuration for better peer discovery`);
       
       const engine = torrentStream(magnetUrl, {
         tmp: fileService.getTempDir(),
@@ -22,7 +22,8 @@ class TorrentService {
         verify: true,         // Verify pieces
         dht: true,            // Enable DHT
         tracker: true,        // Enable trackers
-        strategy: 'sequential', // Download pieces sequentially from start
+        // Note: 'sequential' strategy might not be supported in all versions
+        // If download stalls, we'll fall back to default behavior
         trackers: [           // Add additional trackers
           'udp://tracker.openbittorrent.com:80',
           'udp://tracker.opentrackr.org:1337/announce',
@@ -31,6 +32,8 @@ class TorrentService {
           'udp://tracker.torrent.eu.org:451/announce'
         ]
       });
+      
+      console.log(`📋 Torrent engine created with enhanced tracker list`);
 
       this.activeEngines.set(streamId, engine);
 
@@ -68,27 +71,27 @@ class TorrentService {
         videoFile.select();
         console.log(`✅ Video file selected for download`);
         
-        // Set high priority for the video file to download it first
-        if (videoFile.priority) {
-          videoFile.priority(1); // Highest priority
-          console.log(`🔥 Set high priority for video file`);
+        // Try to set high priority for the video file (if supported)
+        try {
+          if (typeof videoFile.priority === 'function') {
+            videoFile.priority(1); // Highest priority
+            console.log(`🔥 Set high priority for video file`);
+          } else if (videoFile.priority !== undefined) {
+            videoFile.priority = 1;
+            console.log(`🔥 Set high priority property for video file`);
+          }
+        } catch (priorityError) {
+          console.log(`⚠️ Could not set file priority (not supported): ${priorityError.message}`);
         }
         
-        // If the engine supports it, prioritize downloading from the beginning
-        if (engine.selection && engine.selection.from && engine.selection.to) {
-          // Select the first part of the video file for immediate download
-          const startOffset = videoFile.offset || 0;
-          const prioritySize = Math.min(50 * 1024 * 1024, videoFile.length); // First 50MB or entire file
-          engine.selection.from = startOffset;
-          engine.selection.to = startOffset + prioritySize;
-          console.log(`🎯 Prioritizing first ${this.formatFileSize(prioritySize)} of video file`);
-        }
+        // Monitor file-specific download progress
+        // this.startFileProgressMonitoring(streamId, videoFile, engine);
 
         // Start periodic progress checking
-        this.startProgressMonitoring(streamId, engine);
+        // this.startProgressMonitoring(streamId, engine);
         
         // Start swarm monitoring
-        this.startSwarmMonitoring(streamId, engine);
+        // this.startSwarmMonitoring(streamId, engine);
 
         // Start FFmpeg conversion when file starts downloading
         this.startFFmpegConversion(streamId, videoFile, engine);
@@ -100,7 +103,10 @@ class TorrentService {
         const total = engine.torrent?.length || 1;
         const progress = Math.round((downloaded / total) * 100);
         
-        console.log(`📥 Downloaded: ${this.formatFileSize(downloaded)} / ${this.formatFileSize(total)} (${progress}%)`);
+        // Simplified logging - only show every 10% progress
+        if (progress % 10 === 0 || progress === 1) {
+          console.log(`📥 Downloaded: ${this.formatFileSize(downloaded)} / ${this.formatFileSize(total)} (${progress}%)`);
+        }
         streamManager.updateStreamProgress(streamId, progress);
       });
 
@@ -112,7 +118,11 @@ class TorrentService {
 
       // Add more detailed event logging
       engine.on('peer', (peer) => {
-        console.log(`👋 New peer connected for stream ${streamId}: ${peer.remoteAddress}`);
+        // Only log first few peers to reduce spam
+        const peerCount = engine.swarm?.wires?.length || 0;
+        if (peerCount <= 5) {
+          console.log(`👋 Peer #${peerCount} connected: ${peer.remoteAddress}`);
+        }
       });
 
       engine.on('noPeers', () => {
@@ -120,9 +130,9 @@ class TorrentService {
       });
 
       // Monitor when pieces are downloaded
-      engine.on('hotswap', () => {
-        console.log(`🔥 Hotswap event for stream ${streamId}`);
-      });
+      // engine.on('hotswap', () => {
+      //   console.log(`🔥 Hotswap event for stream ${streamId}`);
+      // });
 
       // Log when torrent is fully downloaded
       engine.on('idle', () => {
@@ -243,66 +253,130 @@ class TorrentService {
     });
   }
 
-  startSwarmMonitoring(streamId, engine) {
-    const monitorSwarm = () => {
-      if (!this.activeEngines.has(streamId)) {
-        return;
-      }
+  // Commented out for single stream debugging
+  // startSwarmMonitoring(streamId, engine) {
+  //   const monitorSwarm = () => {
+  //     if (!this.activeEngines.has(streamId)) {
+  //       return;
+  //     }
 
-      try {
-        const swarm = engine.swarm;
-        const peers = swarm.wires.length;
-        const activePeers = swarm.wires.filter(wire => !wire.peerChoking).length;
-        const downloadSpeed = Math.round(swarm.downloadSpeed() / 1024); // KB/s
-        const uploadSpeed = Math.round(swarm.uploadSpeed() / 1024); // KB/s
+  //     try {
+  //       const swarm = engine.swarm;
+  //       const peers = swarm.wires.length;
+  //       const activePeers = swarm.wires.filter(wire => !wire.peerChoking).length;
+  //       const downloadSpeed = Math.round(swarm.downloadSpeed() / 1024); // KB/s
+  //       const uploadSpeed = Math.round(swarm.uploadSpeed() / 1024); // KB/s
         
-        console.log(`🕸️ Swarm status - Stream ${streamId}:`);
-        console.log(`  👥 Peers: ${peers} (${activePeers} active)`);
-        console.log(`  ⬇️ Download: ${downloadSpeed} KB/s`);
-        console.log(`  ⬆️ Upload: ${uploadSpeed} KB/s`);
-        console.log(`  📊 Downloaded: ${this.formatFileSize(swarm.downloaded)}`);
+  //       console.log(`🕸️ Swarm status - Stream ${streamId}:`);
+  //       console.log(`  👥 Peers: ${peers} (${activePeers} active)`);
+  //       console.log(`  ⬇️ Download: ${downloadSpeed} KB/s`);
+  //       console.log(`  ⬆️ Upload: ${uploadSpeed} KB/s`);
+  //       console.log(`  📊 Downloaded: ${this.formatFileSize(swarm.downloaded)}`);
         
-        if (peers === 0) {
-          console.log(`  ⚠️ No peers connected - torrent might be dead or need more time`);
-        }
+  //       if (peers === 0) {
+  //         console.log(`  ⚠️ No peers connected - torrent might be dead or need more time`);
+  //       }
         
-        setTimeout(monitorSwarm, 5000); // Check every 5 seconds
-      } catch (error) {
-        console.error(`❌ Error monitoring swarm for stream ${streamId}:`, error);
-      }
-    };
+  //       setTimeout(monitorSwarm, 5000); // Check every 5 seconds
+  //     } catch (error) {
+  //       console.error(`❌ Error monitoring swarm for stream ${streamId}:`, error);
+  //     }
+  //   };
 
-    // Start monitoring after a short delay
-    setTimeout(monitorSwarm, 2000);
-  }
+  //   // Start monitoring after a short delay
+  //   setTimeout(monitorSwarm, 2000);
+  // }
 
-  startProgressMonitoring(streamId, engine) {
-    const monitorProgress = () => {
-      if (!this.activeEngines.has(streamId)) {
-        // Stream was cleaned up, stop monitoring
-        return;
-      }
+  // Commented out for single stream debugging
+  // startProgressMonitoring(streamId, engine) {
+  //   const monitorProgress = () => {
+  //     if (!this.activeEngines.has(streamId)) {
+  //       // Stream was cleaned up, stop monitoring
+  //       return;
+  //     }
 
-      try {
-        const downloaded = engine.swarm?.downloaded || 0;
-        const total = engine.torrent?.length || 1;
-        const progress = Math.round((downloaded / total) * 100);
+  //     try {
+  //       const downloaded = engine.swarm?.downloaded || 0;
+  //       const total = engine.torrent?.length || 1;
+  //       const progress = Math.round((downloaded / total) * 100);
         
-        console.log(`📈 Progress check - Stream ${streamId}: ${this.formatFileSize(downloaded)} / ${this.formatFileSize(total)} (${progress}%)`);
-        streamManager.updateStreamProgress(streamId, progress);
+  //       console.log(`📈 Progress check - Stream ${streamId}: ${this.formatFileSize(downloaded)} / ${this.formatFileSize(total)} (${progress}%)`);
+  //       streamManager.updateStreamProgress(streamId, progress);
         
-        // Continue monitoring every 2 seconds if download isn't complete
-        if (progress < 100) {
-          setTimeout(monitorProgress, 2000);
-        }
-      } catch (error) {
-        console.error(`❌ Error monitoring progress for stream ${streamId}:`, error);
-      }
-    };
+  //       // Continue monitoring every 2 seconds if download isn't complete
+  //       if (progress < 100) {
+  //         setTimeout(monitorProgress, 2000);
+  //       }
+  //     } catch (error) {
+  //       console.error(`❌ Error monitoring progress for stream ${streamId}:`, error);
+  //     }
+  //   };
 
-    // Start monitoring after a short delay
-    setTimeout(monitorProgress, 1000);
-  }
+  //   // Start monitoring after a short delay
+  //   setTimeout(monitorProgress, 1000);
+  // }
+
+  // Commented out for single stream debugging
+  // startFileProgressMonitoring(streamId, videoFile, engine) {
+  //   const monitorFileProgress = () => {
+  //     if (!this.activeEngines.has(streamId)) {
+  //       return;
+  //     }
+
+  //     try {
+  //       const fileDownloaded = videoFile.downloaded || 0;
+  //       const fileSize = videoFile.length || 0;
+  //       const fileProgress = fileSize > 0 ? Math.round((fileDownloaded / fileSize) * 100) : 0;
+        
+  //       // Also check actual file on disk
+  //       const basePath = fileService.getStreamDir(streamId);
+  //       const filePaths = [
+  //         path.join(basePath, videoFile.name),
+  //         path.join(basePath, path.basename(videoFile.name))
+  //       ];
+        
+  //       let diskFileSize = 0;
+  //       for (const filePath of filePaths) {
+  //         try {
+  //           if (require('fs').existsSync(filePath)) {
+  //             diskFileSize = require('fs').statSync(filePath).size;
+  //             break;
+  //           }
+  //         } catch (e) {
+  //           // Continue checking
+  //         }
+  //       }
+        
+  //       console.log(`📁 File progress - Stream ${streamId}:`);
+  //       console.log(`   🎬 File: ${videoFile.name}`);
+  //       console.log(`   📊 Torrent reports: ${this.formatFileSize(fileDownloaded)} / ${this.formatFileSize(fileSize)} (${fileProgress}%)`);
+  //       console.log(`   💾 Disk has: ${this.formatFileSize(diskFileSize)}`);
+        
+  //       const effectiveProgress = Math.max(fileProgress, Math.round((diskFileSize / fileSize) * 100));
+  //       console.log(`   📈 Effective: ${effectiveProgress}%`);
+        
+  //       if (fileDownloaded === 0 && diskFileSize === 0) {
+  //         console.log(`   ⚠️ No file data detected - checking torrent health`);
+          
+  //         const peers = engine.swarm?.wires?.length || 0;
+  //         const downloadSpeed = engine.swarm?.downloadSpeed ? Math.round(engine.swarm.downloadSpeed() / 1024) : 0;
+          
+  //         if (peers === 0) {
+  //           console.log(`   🔍 No peers connected - torrent might be dead or need more time`);
+  //         } else if (downloadSpeed === 0) {
+  //           console.log(`   ⏸️ Peers connected (${peers}) but no download speed - they might not have the file`);
+  //         }
+  //       }
+        
+  //       setTimeout(monitorFileProgress, 3000); // Check every 3 seconds
+  //     } catch (error) {
+  //       console.error(`❌ Error monitoring file progress for stream ${streamId}:`, error);
+  //     }
+  //   };
+
+  //   // Start monitoring after a short delay
+  //   setTimeout(monitorFileProgress, 2000);
+  // }
 
   async startFFmpegConversion(streamId, videoFile, engine) {
     try {
@@ -311,7 +385,7 @@ class TorrentService {
       console.log(`📊 File size: ${this.formatFileSize(videoFile.length)}`);
       
       // Wait for some data to be available
-      await this.waitForFileData(videoFile, engine);
+      await this.waitForFileData(videoFile, engine, streamId);
       
       // Use the actual torrent download path instead of constructed path
       const basePath = fileService.getStreamDir(streamId);
@@ -457,7 +531,7 @@ class TorrentService {
       console.log(`🔄 FFmpeg retry attempt ${attempt}/${maxAttempts} for stream ${streamId}`);
       
       // Wait for more data
-      await this.waitForFileData(videoFile, engine, 8 * 1024 * 1024); // 8MB for retry (sequential should be more reliable)
+      await this.waitForFileData(videoFile, engine, streamId, 8 * 1024 * 1024); // 8MB for retry (sequential should be more reliable)
       
       // Find the file again (path might have changed)
       const basePath = fileService.getStreamDir(streamId);
@@ -511,31 +585,61 @@ class TorrentService {
     }
   }
 
-  async waitForFileData(file, engine, minBytes = 5 * 1024 * 1024) { // Wait for 5MB (reduced since sequential)
+  async waitForFileData(file, engine, streamId, minBytes = 5 * 1024 * 1024) { // Wait for 5MB (reduced since sequential)
     return new Promise((resolve) => {
       const checkData = () => {
+        // Get file download status from multiple sources
         const currentDownloaded = file.downloaded || 0;
         const fileSize = file.length || 0;
-        const fileProgress = Math.round((currentDownloaded / fileSize) * 100);
+        const fileProgress = fileSize > 0 ? Math.round((currentDownloaded / fileSize) * 100) : 0;
         const torrentProgress = engine ? Math.round((engine.swarm.downloaded / engine.torrent.length) * 100) : 0;
         
-        console.log(`📊 File download status: ${this.formatFileSize(currentDownloaded)} / ${this.formatFileSize(fileSize)} (${fileProgress}%)`);
-        console.log(`📊 Overall torrent progress: ${torrentProgress}%`);
+        // Also check actual file size on disk as fallback
+        let actualFileSize = 0;
+        const basePath = require('./fileService').getStreamDir(streamId);
+        const possiblePaths = [
+          require('path').join(basePath, file.name),
+          require('path').join(basePath, require('path').basename(file.name))
+        ];
         
-        // With sequential downloading, we can be less conservative
-        const hasEnoughFileData = currentDownloaded >= minBytes;
-        const fileProgressGood = fileProgress >= 2; // At least 2% of the specific file (reduced from 5%)
-        const isComplete = currentDownloaded >= fileSize;
+        for (const filePath of possiblePaths) {
+          try {
+            if (require('fs').existsSync(filePath)) {
+              const stats = require('fs').statSync(filePath);
+              actualFileSize = stats.size;
+              break;
+            }
+          } catch (e) {
+            // Ignore errors, continue checking
+          }
+        }
         
-        // Also check if we have some reasonable amount of data for the file size
-        const minRequiredForSize = Math.min(minBytes, fileSize * 0.02); // 2% or 5MB, whichever is smaller
+        // Use the larger of the two values (torrent tracking vs file system)
+        const effectiveDownloaded = Math.max(currentDownloaded, actualFileSize);
+        const effectiveProgress = fileSize > 0 ? Math.round((effectiveDownloaded / fileSize) * 100) : 0;
         
-        if (isComplete || (hasEnoughFileData && fileProgressGood) || currentDownloaded >= minRequiredForSize) {
-          console.log(`✅ Sufficient file data for FFmpeg (sequential): ${this.formatFileSize(currentDownloaded)} (${fileProgress}% of file)`);
+        console.log(`📊 Waiting for file data: ${this.formatFileSize(effectiveDownloaded)} / ${this.formatFileSize(fileSize)} (${effectiveProgress}%) | Torrent: ${torrentProgress}%`);
+        
+        // More flexible conditions
+        const hasEnoughFileData = effectiveDownloaded >= minBytes;
+        const fileProgressGood = effectiveProgress >= 2;
+        const isComplete = effectiveDownloaded >= fileSize;
+        const minRequiredForSize = Math.min(minBytes, fileSize * 0.02);
+        
+        // Also consider if we have any reasonable file data
+        const hasAnyData = effectiveDownloaded > 0;
+        const hasSomeProgress = torrentProgress > 0;
+        
+        if (isComplete || (hasEnoughFileData && fileProgressGood) || effectiveDownloaded >= minRequiredForSize) {
+          console.log(`✅ Sufficient file data for FFmpeg: ${this.formatFileSize(effectiveDownloaded)} (${effectiveProgress}% of file)`);
           resolve();
+        } else if (!hasAnyData && !hasSomeProgress) {
+          console.log(`⚠️ No download progress detected - torrent might be stalled`);
+          console.log(`⏳ Waiting for download to start... (${this.formatFileSize(effectiveDownloaded)} downloaded)`);
+          setTimeout(checkData, 3000); // Check less frequently when stalled
         } else {
-          console.log(`⏳ Waiting for sequential file data... file at ${fileProgress}%, need at least 2% AND 5MB (currently ${this.formatFileSize(currentDownloaded)})`);
-          setTimeout(checkData, 2000); // Check less frequently
+          console.log(`⏳ Downloading... file at ${effectiveProgress}%, need at least 2% AND 5MB (currently ${this.formatFileSize(effectiveDownloaded)})`);
+          setTimeout(checkData, 2000);
         }
       };
       checkData();
