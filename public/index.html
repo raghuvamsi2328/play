@@ -235,6 +235,7 @@
                     <input type="url" id="magnetUrl" placeholder="magnet:?xt=urn:btih:..." />
                 </div>
                 <button class="btn" onclick="createStream()">Create Stream</button>
+                <button class="btn" onclick="runDiagnostics()" style="background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%); margin-left: 10px;">🔧 Network Diagnostics</button>
 
                 <!-- Example Magnets -->
                 <div class="example-magnets">
@@ -357,6 +358,40 @@
 
             } catch (error) {
                 showError(`Failed to create stream: ${error.message}`);
+            }
+        }
+
+        async function runDiagnostics() {
+            const magnetUrl = document.getElementById('magnetUrl').value;
+            
+            if (!magnetUrl) {
+                showError('Please enter a magnet URL to diagnose');
+                return;
+            }
+
+            log(`🔧 Running network diagnostics for magnet URL...`);
+            showSuccess('Running network diagnostics... Check console logs for details');
+
+            try {
+                const response = await fetch(`${API_BASE}/diagnostics`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ magnetUrl })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to run diagnostics');
+                }
+
+                showSuccess('Network diagnostics completed! Check server logs for detailed results');
+                log(`✅ Diagnostics completed: ${data.message}`);
+
+            } catch (error) {
+                showError(`Failed to run diagnostics: ${error.message}`);
             }
         }
 

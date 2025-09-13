@@ -41,6 +41,30 @@ app.get('/stream/:id', streamController.getStream);
 app.get('/stream/:id/status', streamController.getStreamStatus);
 app.get('/hls/:id/:file', streamController.getHLSFile);
 
+// Network diagnostics endpoint for troubleshooting
+app.post('/diagnostics', async (req, res) => {
+  try {
+    const { magnetUrl } = req.body;
+    if (!magnetUrl) {
+      return res.status(400).json({ error: 'Magnet URL required' });
+    }
+    
+    console.log(`🔧 Running network diagnostics for magnet URL...`);
+    
+    // Import torrentService for diagnostics
+    const torrentService = require('./services/torrentService');
+    await torrentService.performNetworkDiagnostics(magnetUrl);
+    
+    res.json({ 
+      status: 'completed', 
+      message: 'Network diagnostics completed. Check server logs for details.' 
+    });
+  } catch (error) {
+    console.error('Diagnostics error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });

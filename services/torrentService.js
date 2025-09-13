@@ -14,22 +14,47 @@ class TorrentService {
       console.log(`🌊 Starting torrent download for stream ${streamId}`);
       console.log(`🔄 Using enhanced tracker configuration for better peer discovery`);
       
+      // Perform network diagnostics first
+      await this.performNetworkDiagnostics(magnetUrl);
+      
       const engine = torrentStream(magnetUrl, {
         tmp: fileService.getTempDir(),
         path: fileService.getStreamDir(streamId),
-        connections: 100,     // Allow more connections
-        uploads: 10,          // Allow more uploads to get better reciprocation
+        connections: 200,     // Increased connections
+        uploads: 20,          // Increased uploads for better reciprocation
         verify: true,         // Verify pieces
         dht: true,            // Enable DHT
         tracker: true,        // Enable trackers
+        // UDP Port Configuration for BitTorrent
+        port: 6881,           // Fixed UDP port for BitTorrent (instead of random)
+        dhtPort: 6882,        // Fixed DHT port (UDP)
+        torrentPort: 6881,    // Explicit torrent port
+        // Additional network options
+        maxConns: 200,        // Maximum connections
+        secure: false,        // Don't require encryption (more compatibility)
+        // Timeout settings for better connectivity
+        trackerTimeout: 10000,  // 10 second tracker timeout
+        dhtTimeout: 5000,      // 5 second DHT timeout
         // Note: 'sequential' strategy might not be supported in all versions
         // If download stalls, we'll fall back to default behavior
-        trackers: [           // Add additional trackers
+        trackers: [           // Enhanced tracker list with more reliable trackers
           'udp://tracker.openbittorrent.com:80',
           'udp://tracker.opentrackr.org:1337/announce',
+          'udp://9.rarbg.com:2810/announce',
           'udp://tracker.coppersurfer.tk:6969/announce',
           'udp://exodus.desync.com:6969/announce',
-          'udp://tracker.torrent.eu.org:451/announce'
+          'udp://tracker.torrent.eu.org:451/announce',
+          'udp://open.stealth.si:80/announce',
+          'udp://tracker.tiny-vps.com:6969/announce',
+          'udp://fasttracker.foreverpirates.co:6969/announce',
+          'udp://tracker.cyberia.is:6969/announce',
+          'udp://ipv4.tracker.harry.lu:80/announce',
+          'udp://tracker.zer0day.to:1337/announce',
+          'udp://tracker.leechers-paradise.org:6969/announce',
+          'udp://coppersurfer.tk:6969/announce',
+          // HTTP trackers as backup
+          'http://tracker.opentrackr.org:1337/announce',
+          'http://9.rarbg.com:2810/announce'
         ]
       });
       
@@ -43,6 +68,46 @@ class TorrentService {
         console.log(`💾 Total torrent size: ${this.formatFileSize(engine.torrent.length)}`);
         console.log(`🔗 Torrent info hash: ${engine.torrent.infoHash}`);
         console.log(`👥 Initial peers: ${engine.swarm.wires.length}`);
+        
+        // Enhanced network diagnostics
+        console.log(`🌐 Network diagnostics:`);
+        console.log(`  📡 DHT enabled: ${engine.dht ? 'Yes' : 'No'}`);
+        console.log(`  📊 Tracker count: ${engine.torrent.announce ? engine.torrent.announce.length : 0}`);
+        console.log(`  🔗 Magnet URI trackers: ${magnetUrl.match(/tr=/g)?.length || 0}`);
+        
+        // Log UDP port information
+        if (engine.swarm) {
+          console.log(`🔌 Network ports:`);
+          console.log(`  📡 BitTorrent port: ${engine.swarm.port || 6881} (UDP/TCP)`);
+          console.log(`  🌐 DHT port: ${engine.dht?.port || 6882} (UDP)`);
+          
+          // Show listening status
+          if (engine.swarm.listening) {
+            console.log(`  ✅ Swarm is listening for incoming connections`);
+          } else {
+            console.log(`  ⚠️ Swarm not yet listening - this may affect peer discovery`);
+          }
+        }
+        
+        // Check if we're behind NAT
+        console.log(`🔍 NAT/Firewall status:`);
+        console.log(`  📥 Incoming connections: ${engine.swarm?.wires?.filter(wire => wire.incoming).length || 0}`);
+        console.log(`  📤 Outgoing connections: ${engine.swarm?.wires?.filter(wire => !wire.incoming).length || 0}`);
+        
+        // Force tracker announces immediately
+        if (engine.swarm && engine.swarm._trackers) {
+          console.log(`🚀 Forcing tracker announces for better peer discovery...`);
+          engine.swarm._trackers.forEach((tracker, index) => {
+            if (tracker && typeof tracker.announce === 'function') {
+              console.log(`📡 Announcing to tracker ${index + 1}: ${tracker.announce.uri || 'unknown'}`);
+              try {
+                tracker.announce();
+              } catch (e) {
+                console.log(`⚠️ Failed to announce to tracker: ${e.message}`);
+              }
+            }
+          });
+        }
         
         // Log torrent structure for debugging
         this.logTorrentStructure(engine.files);
@@ -116,6 +181,9 @@ class TorrentService {
         
         // Add a health check timer to detect if torrent is stalled
         this.startHealthCheck(streamId, engine, videoFile);
+        
+        // Start aggressive peer discovery
+        this.startPeerDiscovery(streamId, engine, magnetUrl);
       });
 
       engine.on('download', (index) => {
@@ -158,15 +226,37 @@ class TorrentService {
 
       // Add more detailed event logging
       engine.on('peer', (peer) => {
-        // Only log first few peers to reduce spam
+        // Enhanced peer connection logging
         const peerCount = engine.swarm?.wires?.length || 0;
-        if (peerCount <= 5) {
-          console.log(`👋 Peer #${peerCount} connected: ${peer.remoteAddress}`);
+        console.log(`👋 Peer #${peerCount} connected: ${peer.remoteAddress} (${peer.type || 'unknown'})`);
+        
+        // Log peer details for troubleshooting
+        if (peerCount <= 3) {
+          console.log(`  � Peer info: ${JSON.stringify({
+            address: peer.remoteAddress,
+            port: peer.remotePort,
+            type: peer.type,
+            incoming: peer.incoming
+          })}`);
+        }
+        
+        // Celebrate first peer connection
+        if (peerCount === 1) {
+          console.log(`🎉 First peer connected! Peer discovery successful!`);
         }
       });
 
       engine.on('noPeers', () => {
-        console.log(`😞 No peers found for stream ${streamId} - torrent might be dead`);
+        console.log(`😞 No peers event triggered for stream ${streamId}`);
+        console.log(`🔍 Troubleshooting peer discovery issues...`);
+        
+        // Provide troubleshooting information
+        console.log(`💡 Troubleshooting tips:`);
+        console.log(`  1. Check if your router allows BitTorrent traffic`);
+        console.log(`  2. Try disabling any VPN that might be blocking peers`);
+        console.log(`  3. Check if your ISP blocks BitTorrent ports`);
+        console.log(`  4. The torrent might be old with few active seeders`);
+        console.log(`  5. Try the same magnet URL in a regular torrent client`);
       });
 
       // Monitor when pieces are downloaded
@@ -814,6 +904,226 @@ class TorrentService {
     const downloaded = engine.swarm?.downloaded || 0;
     const total = engine.torrent?.length || 1;
     return Math.round((downloaded / total) * 100);
+  }
+
+  startPeerDiscovery(streamId, engine, magnetUrl) {
+    console.log(`🔍 Starting aggressive peer discovery for stream ${streamId}`);
+    
+    let discoveryAttempts = 0;
+    const maxDiscoveryAttempts = 5;
+    
+    const attemptPeerDiscovery = () => {
+      if (!this.activeEngines.has(streamId) || discoveryAttempts >= maxDiscoveryAttempts) {
+        return;
+      }
+      
+      discoveryAttempts++;
+      const peers = engine.swarm?.wires?.length || 0;
+      
+      console.log(`🔍 Peer discovery attempt ${discoveryAttempts}/${maxDiscoveryAttempts} - Current peers: ${peers}`);
+      
+      if (peers === 0) {
+        // Try to re-announce to all trackers
+        if (engine.swarm && engine.swarm._trackers) {
+          console.log(`📡 Re-announcing to ${engine.swarm._trackers.length} trackers...`);
+          
+          engine.swarm._trackers.forEach((tracker, index) => {
+            if (tracker) {
+              try {
+                if (typeof tracker.announce === 'function') {
+                  tracker.announce();
+                  console.log(`  ✅ Announced to tracker ${index + 1}`);
+                } else if (tracker.client && typeof tracker.client.announce === 'function') {
+                  tracker.client.announce();
+                  console.log(`  ✅ Announced to tracker ${index + 1} (client)`);
+                }
+              } catch (e) {
+                console.log(`  ❌ Failed to announce to tracker ${index + 1}: ${e.message}`);
+              }
+            }
+          });
+        }
+        
+        // Try to bootstrap DHT if available
+        if (engine.dht && typeof engine.dht.bootstrap === 'function') {
+          console.log(`🌐 Bootstrapping DHT for better peer discovery...`);
+          try {
+            engine.dht.bootstrap();
+          } catch (e) {
+            console.log(`⚠️ DHT bootstrap failed: ${e.message}`);
+          }
+        }
+        
+        // Extract additional trackers from the magnet URL
+        const trackerMatches = magnetUrl.match(/tr=([^&]+)/g);
+        if (trackerMatches) {
+          console.log(`🔗 Found ${trackerMatches.length} trackers in magnet URL`);
+          trackerMatches.forEach((match, index) => {
+            const trackerUrl = decodeURIComponent(match.substring(3));
+            console.log(`  📡 Tracker ${index + 1}: ${trackerUrl}`);
+          });
+        }
+        
+        // Manual peer injection if we have them from other sources
+        this.tryManualPeerInjection(engine, magnetUrl);
+        
+        setTimeout(attemptPeerDiscovery, 10000); // Try again in 10 seconds
+      } else {
+        console.log(`✅ Peer discovery successful! Found ${peers} peers`);
+      }
+    };
+    
+    // Start discovery after initial connection period
+    setTimeout(attemptPeerDiscovery, 5000);
+  }
+
+  tryManualPeerInjection(engine, magnetUrl) {
+    console.log(`🎯 Attempting manual peer injection techniques...`);
+    
+    // Common DHT nodes that might help bootstrap
+    const dhtBootstrapNodes = [
+      { host: 'router.bittorrent.com', port: 6881 },
+      { host: 'dht.transmissionbt.com', port: 6881 },
+      { host: 'router.utorrent.com', port: 6881 }
+    ];
+    
+    // Try to connect to DHT bootstrap nodes
+    if (engine.dht) {
+      dhtBootstrapNodes.forEach(node => {
+        try {
+          if (typeof engine.dht.addNode === 'function') {
+            engine.dht.addNode(node);
+            console.log(`  🌐 Added DHT bootstrap node: ${node.host}:${node.port}`);
+          }
+        } catch (e) {
+          console.log(`  ⚠️ Failed to add DHT node ${node.host}: ${e.message}`);
+        }
+      });
+    }
+    
+    // Try to extract peer information from magnet link
+    const peerMatches = magnetUrl.match(/x\.pe=([^&]+)/g);
+    if (peerMatches) {
+      console.log(`👥 Found ${peerMatches.length} peers in magnet URL`);
+      peerMatches.forEach((match, index) => {
+        try {
+          const peerInfo = decodeURIComponent(match.substring(5));
+          console.log(`  👤 Peer ${index + 1}: ${peerInfo}`);
+          
+          // Try to connect to peer if format is IP:PORT
+          const peerMatch = peerInfo.match(/^(.+):(\d+)$/);
+          if (peerMatch && engine.swarm) {
+            const [, ip, port] = peerMatch;
+            if (typeof engine.swarm.add === 'function') {
+              engine.swarm.add(`${ip}:${port}`);
+              console.log(`  🔗 Attempting connection to peer: ${ip}:${port}`);
+            }
+          }
+        } catch (e) {
+          console.log(`  ⚠️ Failed to process peer info: ${e.message}`);
+        }
+      });
+    }
+  }
+
+  async performNetworkDiagnostics(magnetUrl) {
+    console.log(`🔧 Performing network diagnostics for magnet URL...`);
+    
+    // Extract info hash
+    const infoHashMatch = magnetUrl.match(/urn:btih:([a-fA-F0-9]{40})/);
+    const infoHash = infoHashMatch ? infoHashMatch[1] : 'unknown';
+    console.log(`🆔 Torrent Info Hash: ${infoHash}`);
+    
+    // Extract trackers
+    const trackerMatches = magnetUrl.match(/tr=([^&]+)/g) || [];
+    console.log(`📡 Trackers found in magnet URL: ${trackerMatches.length}`);
+    
+    trackerMatches.forEach((match, index) => {
+      const trackerUrl = decodeURIComponent(match.substring(3));
+      const protocol = trackerUrl.startsWith('udp://') ? 'UDP' : 
+                      trackerUrl.startsWith('http://') ? 'HTTP' : 'UNKNOWN';
+      console.log(`  ${index + 1}. [${protocol}] ${trackerUrl}`);
+    });
+    
+    // Test basic network connectivity
+    console.log(`🌐 Testing network connectivity...`);
+    
+    try {
+      const dns = require('dns').promises;
+      await dns.lookup('google.com');
+      console.log(`  ✅ Internet connectivity: OK`);
+    } catch (error) {
+      console.log(`  ❌ Internet connectivity: FAILED - ${error.message}`);
+    }
+    
+    // Check if common BitTorrent UDP ports are available
+    console.log(`🔌 Checking BitTorrent UDP ports...`);
+    const dgram = require('dgram');
+    
+    const testUdpPort = (port) => {
+      return new Promise((resolve) => {
+        const socket = dgram.createSocket('udp4');
+        
+        socket.bind(port, () => {
+          console.log(`  Port ${port} (UDP): ✅ Available for BitTorrent`);
+          socket.close();
+          resolve(true);
+        });
+        
+        socket.on('error', (err) => {
+          if (err.code === 'EADDRINUSE') {
+            console.log(`  Port ${port} (UDP): ❌ Already in use`);
+          } else if (err.code === 'EACCES') {
+            console.log(`  Port ${port} (UDP): ❌ Permission denied`);
+          } else {
+            console.log(`  Port ${port} (UDP): ❌ Error - ${err.message}`);
+          }
+          resolve(false);
+        });
+      });
+    };
+    
+    // Test our configured ports
+    const torrentPorts = [6881, 6882, 6883, 6969];
+    for (const port of torrentPorts) {
+      await testUdpPort(port);
+    }
+    
+    // Check if we can reach a known UDP tracker
+    console.log(`🎯 Testing UDP tracker connectivity...`);
+    try {
+      const testTracker = 'tracker.openbittorrent.com';
+      const dns = require('dns').promises;
+      const result = await dns.lookup(testTracker);
+      console.log(`  ✅ Can resolve ${testTracker} -> ${result.address}`);
+    } catch (error) {
+      console.log(`  ❌ Cannot resolve UDP tracker: ${error.message}`);
+    }
+    
+    // Check system environment
+    console.log(`💻 System environment:`);
+    console.log(`  Platform: ${process.platform}`);
+    console.log(`  Architecture: ${process.arch}`);
+    console.log(`  Node.js: ${process.version}`);
+    
+    // Network interface information
+    const os = require('os');
+    const networkInterfaces = os.networkInterfaces();
+    console.log(`🌐 Network interfaces:`);
+    
+    Object.keys(networkInterfaces).forEach(interfaceName => {
+      const interfaces = networkInterfaces[interfaceName];
+      const ipv4Interface = interfaces.find(iface => iface.family === 'IPv4' && !iface.internal);
+      if (ipv4Interface) {
+        console.log(`  ${interfaceName}: ${ipv4Interface.address} (${ipv4Interface.internal ? 'internal' : 'external'})`);
+      }
+    });
+    
+    console.log(`🔍 BitTorrent troubleshooting tips:`);
+    console.log(`  1. Make sure UDP ports 6881-6889 are not blocked by firewall`);
+    console.log(`  2. If behind NAT/router, consider port forwarding UDP 6881-6882`);
+    console.log(`  3. Some ISPs throttle or block BitTorrent UDP traffic`);
+    console.log(`  4. VPNs can interfere with UDP tracker communication`);
   }
 }
 
