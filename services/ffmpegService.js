@@ -23,13 +23,7 @@ class FFmpegService {
             '-fflags +genpts' // Generate missing PTS
           ])
           .outputOptions([
-            '-c:v libx264',           // Video codec
-            '-c:a aac',               // Audio codec
-            '-preset fast',           // Encoding preset
-            '-crf 23',                // Quality setting
-            '-maxrate 3000k',         // Max bitrate
-            '-bufsize 6000k',         // Buffer size
-            '-g 30',                  // GOP size
+            '-c copy',                // Copy streams without re-encoding (REMUX)
             '-hls_time 10',           // 10 second segments
             '-hls_list_size 6',       // Keep 6 segments in playlist
             '-hls_flags delete_segments+append_list', // Delete old segments
@@ -55,9 +49,19 @@ class FFmpegService {
         });
 
         command.on('error', (error) => {
-          console.error(`❌ FFmpeg error for stream ${streamId}:`, error);
-          this.activeProcesses.delete(streamId);
-          reject(error);
+          console.error(`❌ FFmpeg error for stream ${streamId}:`, error.message);
+          
+          // If remuxing failed, try with re-encoding as fallback
+          if (error.message.includes('codec') || error.message.includes('format')) {
+            console.log(`🔄 Remuxing failed, trying with re-encoding for stream ${streamId}`);
+            this.convertToHLSWithEncoding(streamId, inputPath, outputDir)
+              .then(resolve)
+              .catch(reject);
+          } else {
+            streamManager.updateStreamStatus(streamId, 'error', error.message);
+            this.activeProcesses.delete(streamId);
+            reject(error);
+          }
         });
 
         command.on('end', () => {
@@ -70,7 +74,73 @@ class FFmpegService {
         command.run();
 
       } catch (error) {
-        console.error(`❌ Failed to start FFmpeg conversion for stream ${streamId}:`, error);
+        console.error(`❌ Failed to start FFmpeg for stream ${streamId}:`, error);
+        reject(error);
+      }
+    });
+  }
+
+  // Fallback method with re-encoding
+  async convertToHLSWithEncoding(streamId, inputPath, outputDir) {
+    return new Promise((resolve, reject) => {
+      try {
+        console.log(`🎞️ Starting HLS conversion with re-encoding for stream ${streamId}`);
+
+        const outputPlaylist = path.join(outputDir, 'playlist.m3u8');
+        const segmentFilename = path.join(outputDir, 'segment%03d.ts');
+
+        const command = ffmpeg(inputPath)
+          .inputOptions([
+            '-re', // Read input at its native frame rate
+            '-fflags +genpts' // Generate missing PTS
+          ])
+          .outputOptions([
+            '-c:v libx264',           // Video codec
+            '-c:a aac',               // Audio codec
+            '-preset ultrafast',      // Fastest encoding preset
+            '-crf 28',                // Lower quality for speed
+            '-hls_time 10',           // 10 second segments
+            '-hls_list_size 6',       // Keep 6 segments in playlist
+            '-hls_flags delete_segments+append_list', // Delete old segments
+            '-f hls'                  // HLS format
+          ])
+          .output(outputPlaylist);
+
+        // Store the process reference
+        this.activeProcesses.set(streamId, command);
+
+        command.on('start', (commandLine) => {
+          console.log(`▶️ FFmpeg re-encoding started for stream ${streamId}`);
+          console.log(`Command: ${commandLine}`);
+          streamManager.updateStreamStatus(streamId, 'converting');
+        });
+
+        command.on('progress', (progress) => {
+          if (progress.percent) {
+            const progressPercent = Math.round(progress.percent);
+            console.log(`🔄 FFmpeg progress for stream ${streamId}: ${progressPercent}%`);
+            streamManager.updateFFmpegProgress(streamId, progressPercent);
+          }
+        });
+
+        command.on('error', (error) => {
+          console.error(`❌ FFmpeg re-encoding error for stream ${streamId}:`, error.message);
+          streamManager.updateStreamStatus(streamId, 'error', error.message);
+          this.activeProcesses.delete(streamId);
+          reject(error);
+        });
+
+        command.on('end', () => {
+          console.log(`✅ FFmpeg re-encoding completed for stream ${streamId}`);
+          this.activeProcesses.delete(streamId);
+          resolve();
+        });
+
+        // Start the conversion
+        command.run();
+
+      } catch (error) {
+        console.error(`❌ Failed to start FFmpeg re-encoding for stream ${streamId}:`, error);
         reject(error);
       }
     });
