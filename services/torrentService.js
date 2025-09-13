@@ -295,10 +295,53 @@ class TorrentService {
       // Wait for some data to be available
       await this.waitForFileData(videoFile, engine);
       
-      const inputPath = path.join(fileService.getStreamDir(streamId), videoFile.name);
+      // Use the actual torrent download path instead of constructed path
+      const basePath = fileService.getStreamDir(streamId);
+      const actualInputPath = path.join(basePath, videoFile.name);
+      
+      // Also try the direct path in case torrent-stream puts file directly in basePath
+      const alternativeInputPath = path.join(basePath, path.basename(videoFile.name));
+      
+      console.log(`🔍 Checking for input file at: ${actualInputPath}`);
+      console.log(`🔍 Alternative path: ${alternativeInputPath}`);
+      
+      let inputPath = actualInputPath;
+      
+      // Check which path actually exists
+      if (!require('fs').existsSync(actualInputPath)) {
+        if (require('fs').existsSync(alternativeInputPath)) {
+          inputPath = alternativeInputPath;
+          console.log(`✅ Found input file at alternative path: ${alternativeInputPath}`);
+        } else {
+          // List directory contents for debugging
+          try {
+            const files = require('fs').readdirSync(basePath, { recursive: true });
+            console.log(`📁 Files in ${basePath}:`, files);
+            
+            // Try to find the video file by matching name or extension
+            const videoExtensions = ['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v', '.ts', '.mts', '.m2ts'];
+            const foundVideoFile = files.find(file => {
+              const ext = path.extname(file).toLowerCase();
+              return videoExtensions.includes(ext) && file.includes(path.parse(videoFile.name).name);
+            });
+            
+            if (foundVideoFile) {
+              inputPath = path.join(basePath, foundVideoFile);
+              console.log(`✅ Found video file by search: ${inputPath}`);
+            } else {
+              throw new Error(`Video file not found in any expected location. Expected: ${actualInputPath} or ${alternativeInputPath}`);
+            }
+          } catch (listError) {
+            console.error(`❌ Error listing directory contents:`, listError);
+            throw new Error(`Input file not found and couldn't list directory: ${actualInputPath}`);
+          }
+        }
+      } else {
+        console.log(`✅ Found input file at expected path: ${actualInputPath}`);
+      }
       const outputDir = fileService.getHLSDir(streamId);
       
-      console.log(`📂 Input path: ${inputPath}`);
+      console.log(`📂 Final input path: ${inputPath}`);
       console.log(`📂 Output directory: ${outputDir}`);
       
       // Ensure both directories exist with proper error handling
@@ -310,15 +353,17 @@ class TorrentService {
         throw new Error(`Directory creation failed: ${dirError.message}`);
       }
       
-      // Verify input file exists
+      // Final verification that input file exists
       if (!require('fs').existsSync(inputPath)) {
-        console.log(`⏳ Waiting for input file to be created: ${inputPath}`);
-        // Wait a bit more for the file to be created
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        
-        if (!require('fs').existsSync(inputPath)) {
-          throw new Error(`Input file still doesn't exist after waiting: ${inputPath}`);
-        }
+        throw new Error(`Input file still doesn't exist after path resolution: ${inputPath}`);
+      }
+      
+      // Verify file is readable
+      try {
+        const stats = require('fs').statSync(inputPath);
+        console.log(`📊 Input file size: ${this.formatFileSize(stats.size)}`);
+      } catch (statError) {
+        throw new Error(`Cannot access input file: ${inputPath} - ${statError.message}`);
       }
       
       console.log(`🎬 Starting FFmpeg HLS conversion...`);

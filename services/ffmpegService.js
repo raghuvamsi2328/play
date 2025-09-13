@@ -46,11 +46,16 @@ class FFmpegService {
           throw new Error(`Cannot create output directory: ${outputDir} - ${dirError.message}`);
         }
 
-        const outputPlaylist = path.resolve(outputDir, 'playlist.m3u8');
-        const segmentPattern = path.resolve(outputDir, 'segment%03d.ts');
+        const outputPlaylist = path.join(outputDir, 'playlist.m3u8');
+        const segmentPattern = path.join(outputDir, 'segment%03d.ts');
 
         console.log(`📝 Playlist path: ${outputPlaylist}`);
         console.log(`📹 Segment pattern: ${segmentPattern}`);
+        
+        // Validate paths don't contain problematic characters
+        if (outputPlaylist.includes('"') || outputPlaylist.includes("'") || segmentPattern.includes('"') || segmentPattern.includes("'")) {
+          throw new Error(`Output paths contain problematic characters: ${outputPlaylist}`);
+        }
 
         // Test if we can actually create files in the output directory
         const testFile = path.join(outputDir, 'test.txt');
@@ -63,13 +68,13 @@ class FFmpegService {
         }
 
         const command = ffmpeg(inputPath)
+          .format('hls')
           .outputOptions([
-            '-c copy',                // Copy streams without re-encoding (REMUX)
-            '-f hls',                 // HLS format
-            '-hls_time 10',           // 10 second segments
-            '-hls_list_size 6',       // Keep 6 segments in playlist
-            '-hls_segment_filename', segmentPattern, // Explicit segment filename
-            '-y'                      // Overwrite output files
+            '-hls_time 10',
+            '-hls_list_size 6', 
+            '-c copy',
+            '-avoid_negative_ts make_zero',
+            '-y'
           ])
           .output(outputPlaylist);
 
