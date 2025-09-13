@@ -12,6 +12,7 @@ class TorrentService {
   async startDownload(streamId, magnetUrl) {
     try {
       console.log(`🌊 Starting torrent download for stream ${streamId}`);
+      console.log(`🔄 Using sequential download strategy for better streaming compatibility`);
       
       const engine = torrentStream(magnetUrl, {
         tmp: fileService.getTempDir(),
@@ -21,6 +22,7 @@ class TorrentService {
         verify: true,         // Verify pieces
         dht: true,            // Enable DHT
         tracker: true,        // Enable trackers
+        strategy: 'sequential', // Download pieces sequentially from start
         trackers: [           // Add additional trackers
           'udp://tracker.openbittorrent.com:80',
           'udp://tracker.opentrackr.org:1337/announce',
@@ -62,9 +64,25 @@ class TorrentService {
         }
         streamManager.updateStreamStatus(streamId, 'downloading');
 
-        // Select the file for download
+        // Select the file for download with high priority
         videoFile.select();
         console.log(`✅ Video file selected for download`);
+        
+        // Set high priority for the video file to download it first
+        if (videoFile.priority) {
+          videoFile.priority(1); // Highest priority
+          console.log(`🔥 Set high priority for video file`);
+        }
+        
+        // If the engine supports it, prioritize downloading from the beginning
+        if (engine.selection && engine.selection.from && engine.selection.to) {
+          // Select the first part of the video file for immediate download
+          const startOffset = videoFile.offset || 0;
+          const prioritySize = Math.min(50 * 1024 * 1024, videoFile.length); // First 50MB or entire file
+          engine.selection.from = startOffset;
+          engine.selection.to = startOffset + prioritySize;
+          console.log(`🎯 Prioritizing first ${this.formatFileSize(prioritySize)} of video file`);
+        }
 
         // Start periodic progress checking
         this.startProgressMonitoring(streamId, engine);
@@ -358,10 +376,45 @@ class TorrentService {
         throw new Error(`Input file still doesn't exist after path resolution: ${inputPath}`);
       }
       
-      // Verify file is readable
+      // Verify file is readable and has valid data
       try {
         const stats = require('fs').statSync(inputPath);
-        console.log(`📊 Input file size: ${this.formatFileSize(stats.size)}`);
+        console.log(`📊 Input file size on disk: ${this.formatFileSize(stats.size)}`);
+        
+        // Try to read the first few bytes to ensure file is accessible and has data
+        const fs = require('fs');
+        const buffer = Buffer.alloc(1024);
+        const fd = fs.openSync(inputPath, 'r');
+        const bytesRead = fs.readSync(fd, buffer, 0, 1024, 0);
+        fs.closeSync(fd);
+        
+        if (bytesRead < 100) {
+          throw new Error(`File appears to be empty or too small (only ${bytesRead} bytes readable)`);
+        }
+        
+        // Check if it looks like a valid video file (basic header check)
+        const header = buffer.toString('hex', 0, 8);
+        console.log(`📋 File header: ${header}`);
+        
+        // Common video file signatures
+        const videoSignatures = [
+          '00000018', '00000020', // MP4 variants
+          '1a45dfa3', // MKV
+          '52494646', // AVI (RIFF)
+          '464c5601'  // FLV
+        ];
+        
+        const hasValidSignature = videoSignatures.some(sig => header.toLowerCase().includes(sig.toLowerCase())) 
+                                 || header.includes('ftyp') // MP4 ftyp box
+                                 || buffer.includes('ftypmp4'); // MP4 signature
+        
+        if (!hasValidSignature) {
+          console.log(`⚠️ Warning: File might not be a standard video format (header: ${header})`);
+          // Don't throw error, just warn - some formats might not match
+        } else {
+          console.log(`✅ File appears to have valid video headers`);
+        }
+        
       } catch (statError) {
         throw new Error(`Cannot access input file: ${inputPath} - ${statError.message}`);
       }
@@ -375,7 +428,16 @@ class TorrentService {
         })
         .catch((error) => {
           console.error(`❌ FFmpeg conversion failed for stream ${streamId}:`, error);
-          streamManager.updateStreamStatus(streamId, 'error', error.message);
+          
+          // If file wasn't ready, wait a bit and retry
+          if (error.message.includes('FILE_NOT_READY')) {
+            console.log(`🔄 File not ready, will retry FFmpeg in 10 seconds for stream ${streamId}`);
+            setTimeout(() => {
+              this.retryFFmpegConversion(streamId, videoFile, engine, 1);
+            }, 10000);
+          } else {
+            streamManager.updateStreamStatus(streamId, 'error', error.message);
+          }
         });
 
     } catch (error) {
@@ -384,24 +446,96 @@ class TorrentService {
     }
   }
 
-  async waitForFileData(file, engine, minBytes = 1024 * 1024) { // Wait for 1MB
+  async retryFFmpegConversion(streamId, videoFile, engine, attempt = 1, maxAttempts = 3) {
+    if (attempt > maxAttempts) {
+      console.error(`❌ Max FFmpeg retry attempts reached for stream ${streamId}`);
+      streamManager.updateStreamStatus(streamId, 'error', 'FFmpeg failed after multiple retry attempts');
+      return;
+    }
+
+    try {
+      console.log(`🔄 FFmpeg retry attempt ${attempt}/${maxAttempts} for stream ${streamId}`);
+      
+      // Wait for more data
+      await this.waitForFileData(videoFile, engine, 8 * 1024 * 1024); // 8MB for retry (sequential should be more reliable)
+      
+      // Find the file again (path might have changed)
+      const basePath = fileService.getStreamDir(streamId);
+      const actualInputPath = path.join(basePath, videoFile.name);
+      const alternativeInputPath = path.join(basePath, path.basename(videoFile.name));
+      
+      let inputPath = actualInputPath;
+      if (!require('fs').existsSync(actualInputPath) && require('fs').existsSync(alternativeInputPath)) {
+        inputPath = alternativeInputPath;
+      } else if (!require('fs').existsSync(actualInputPath)) {
+        const files = require('fs').readdirSync(basePath, { recursive: true });
+        const videoExtensions = ['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v', '.ts', '.mts', '.m2ts'];
+        const foundVideoFile = files.find(file => {
+          const ext = path.extname(file).toLowerCase();
+          return videoExtensions.includes(ext) && file.includes(path.parse(videoFile.name).name);
+        });
+        if (foundVideoFile) {
+          inputPath = path.join(basePath, foundVideoFile);
+        }
+      }
+
+      const outputDir = fileService.getHLSDir(streamId);
+      console.log(`🔄 Retry ${attempt}: Using input path: ${inputPath}`);
+
+      ffmpegService.convertToHLS(streamId, inputPath, outputDir)
+        .then(() => {
+          console.log(`✅ FFmpeg conversion completed on retry ${attempt} for stream ${streamId}`);
+          streamManager.updateStreamStatus(streamId, 'ready');
+        })
+        .catch((error) => {
+          if (error.message.includes('FILE_NOT_READY') && attempt < maxAttempts) {
+            console.log(`🔄 Retry ${attempt} failed, will try again in 15 seconds`);
+            setTimeout(() => {
+              this.retryFFmpegConversion(streamId, videoFile, engine, attempt + 1, maxAttempts);
+            }, 15000);
+          } else {
+            console.error(`❌ FFmpeg retry ${attempt} failed for stream ${streamId}:`, error);
+            streamManager.updateStreamStatus(streamId, 'error', `FFmpeg failed after ${attempt} attempts: ${error.message}`);
+          }
+        });
+
+    } catch (error) {
+      console.error(`❌ Error in FFmpeg retry ${attempt} for stream ${streamId}:`, error);
+      if (attempt < maxAttempts) {
+        setTimeout(() => {
+          this.retryFFmpegConversion(streamId, videoFile, engine, attempt + 1, maxAttempts);
+        }, 15000);
+      } else {
+        streamManager.updateStreamStatus(streamId, 'error', error.message);
+      }
+    }
+  }
+
+  async waitForFileData(file, engine, minBytes = 5 * 1024 * 1024) { // Wait for 5MB (reduced since sequential)
     return new Promise((resolve) => {
       const checkData = () => {
         const currentDownloaded = file.downloaded || 0;
         const fileSize = file.length || 0;
+        const fileProgress = Math.round((currentDownloaded / fileSize) * 100);
         const torrentProgress = engine ? Math.round((engine.swarm.downloaded / engine.torrent.length) * 100) : 0;
         
-        console.log(`📊 File download status: ${this.formatFileSize(currentDownloaded)} / ${this.formatFileSize(fileSize)} (${Math.round((currentDownloaded / fileSize) * 100)}%)`);
+        console.log(`📊 File download status: ${this.formatFileSize(currentDownloaded)} / ${this.formatFileSize(fileSize)} (${fileProgress}%)`);
         console.log(`📊 Overall torrent progress: ${torrentProgress}%`);
         
-        // If file is fully downloaded or we have enough data, proceed
-        // Also proceed if torrent is at least 10% downloaded (should have enough data for streaming)
-        if (currentDownloaded >= fileSize || currentDownloaded >= minBytes || torrentProgress >= 10) {
-          console.log(`✅ Sufficient data available for FFmpeg conversion (torrent: ${torrentProgress}%, file: ${Math.round((currentDownloaded / fileSize) * 100)}%)`);
+        // With sequential downloading, we can be less conservative
+        const hasEnoughFileData = currentDownloaded >= minBytes;
+        const fileProgressGood = fileProgress >= 2; // At least 2% of the specific file (reduced from 5%)
+        const isComplete = currentDownloaded >= fileSize;
+        
+        // Also check if we have some reasonable amount of data for the file size
+        const minRequiredForSize = Math.min(minBytes, fileSize * 0.02); // 2% or 5MB, whichever is smaller
+        
+        if (isComplete || (hasEnoughFileData && fileProgressGood) || currentDownloaded >= minRequiredForSize) {
+          console.log(`✅ Sufficient file data for FFmpeg (sequential): ${this.formatFileSize(currentDownloaded)} (${fileProgress}% of file)`);
           resolve();
         } else {
-          console.log(`⏳ Waiting for more data... torrent at ${torrentProgress}%, need at least 10% or 1MB file data`);
-          setTimeout(checkData, 1000);
+          console.log(`⏳ Waiting for sequential file data... file at ${fileProgress}%, need at least 2% AND 5MB (currently ${this.formatFileSize(currentDownloaded)})`);
+          setTimeout(checkData, 2000); // Check less frequently
         }
       };
       checkData();

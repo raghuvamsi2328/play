@@ -98,8 +98,16 @@ class FFmpegService {
         command.on('error', (error) => {
           console.error(`❌ FFmpeg error for stream ${streamId}:`, error.message);
           
-          // If remuxing failed, try with re-encoding as fallback
-          if (error.message.includes('codec') || error.message.includes('format')) {
+          // Check if it's an input file issue (file not ready yet)
+          if (error.message.includes('Invalid data found when processing input') || 
+              error.message.includes('Error opening input file')) {
+            console.log(`🔄 Input file might not be ready yet for stream ${streamId}, this is expected during torrent download`);
+            streamManager.updateStreamStatus(streamId, 'waiting_for_data', 'Waiting for more torrent data...');
+            this.activeProcesses.delete(streamId);
+            reject(new Error('FILE_NOT_READY: ' + error.message));
+          }
+          // If remuxing failed due to codec/format issues, try with re-encoding as fallback
+          else if (error.message.includes('codec') || error.message.includes('format')) {
             console.log(`🔄 Remuxing failed, trying with re-encoding for stream ${streamId}`);
             this.convertToHLSWithEncoding(streamId, inputPath, outputDir)
               .then(resolve)
