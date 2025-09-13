@@ -51,12 +51,20 @@ class TorrentService {
         // Select the file for download
         videoFile.select();
 
+        // Start periodic progress checking
+        this.startProgressMonitoring(streamId, engine);
+
         // Start FFmpeg conversion when file starts downloading
         this.startFFmpegConversion(streamId, videoFile, engine);
       });
 
       engine.on('download', (index) => {
-        const progress = Math.round((engine.swarm.downloaded / engine.torrent.length) * 100);
+        // More robust progress calculation
+        const downloaded = engine.swarm?.downloaded || 0;
+        const total = engine.torrent?.length || 1;
+        const progress = Math.round((downloaded / total) * 100);
+        
+        console.log(`📥 Downloaded: ${this.formatFileSize(downloaded)} / ${this.formatFileSize(total)} (${progress}%)`);
         streamManager.updateStreamProgress(streamId, progress);
       });
 
@@ -180,6 +188,34 @@ class TorrentService {
     });
   }
 
+  startProgressMonitoring(streamId, engine) {
+    const monitorProgress = () => {
+      if (!this.activeEngines.has(streamId)) {
+        // Stream was cleaned up, stop monitoring
+        return;
+      }
+
+      try {
+        const downloaded = engine.swarm?.downloaded || 0;
+        const total = engine.torrent?.length || 1;
+        const progress = Math.round((downloaded / total) * 100);
+        
+        console.log(`📈 Progress check - Stream ${streamId}: ${this.formatFileSize(downloaded)} / ${this.formatFileSize(total)} (${progress}%)`);
+        streamManager.updateStreamProgress(streamId, progress);
+        
+        // Continue monitoring every 2 seconds if download isn't complete
+        if (progress < 100) {
+          setTimeout(monitorProgress, 2000);
+        }
+      } catch (error) {
+        console.error(`❌ Error monitoring progress for stream ${streamId}:`, error);
+      }
+    };
+
+    // Start monitoring after a short delay
+    setTimeout(monitorProgress, 1000);
+  }
+
   async startFFmpegConversion(streamId, videoFile, engine) {
     try {
       console.log(`🔄 Starting FFmpeg conversion for stream ${streamId}`);
@@ -253,7 +289,9 @@ class TorrentService {
     const engine = this.activeEngines.get(streamId);
     if (!engine || !engine.torrent) return 0;
     
-    return Math.round((engine.swarm.downloaded / engine.torrent.length) * 100);
+    const downloaded = engine.swarm?.downloaded || 0;
+    const total = engine.torrent?.length || 1;
+    return Math.round((downloaded / total) * 100);
   }
 }
 
