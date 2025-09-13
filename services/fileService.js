@@ -3,8 +3,8 @@ const path = require('path');
 
 class FileService {
   constructor() {
-    // Use /tmp in Docker containers, or fall back to relative path
-    this.tempDir = process.env.NODE_ENV === 'production' ? '/tmp/streamer' : path.join(__dirname, '..', 'temp');
+    // Use /app/temp in Docker containers for better compatibility
+    this.tempDir = process.env.NODE_ENV === 'production' ? '/app/temp' : path.join(__dirname, '..', 'temp');
     console.log(`📁 Using temp directory: ${this.tempDir}`);
     this.ensureDir(this.tempDir);
   }
@@ -14,11 +14,15 @@ class FileService {
   }
 
   getStreamDir(streamId) {
-    return path.join(this.tempDir, 'streams', streamId);
+    // Sanitize streamId to prevent path issues
+    const sanitizedId = streamId.replace(/[^a-zA-Z0-9-]/g, '');
+    return path.join(this.tempDir, 'streams', sanitizedId);
   }
 
   getHLSDir(streamId) {
-    return path.join(this.tempDir, 'hls', streamId);
+    // Sanitize streamId to prevent path issues
+    const sanitizedId = streamId.replace(/[^a-zA-Z0-9-]/g, '');
+    return path.join(this.tempDir, 'hls', sanitizedId);
   }
 
   getHLSPlaylistPath(streamId) {

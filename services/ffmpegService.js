@@ -52,17 +52,24 @@ class FFmpegService {
         console.log(`📝 Playlist path: ${outputPlaylist}`);
         console.log(`📹 Segment pattern: ${segmentPattern}`);
 
+        // Test if we can actually create files in the output directory
+        const testFile = path.join(outputDir, 'test.txt');
+        try {
+          fs.writeFileSync(testFile, 'test');
+          fs.unlinkSync(testFile);
+          console.log(`✅ Write test successful in: ${outputDir}`);
+        } catch (writeError) {
+          throw new Error(`Cannot write to output directory: ${outputDir} - ${writeError.message}`);
+        }
+
         const command = ffmpeg(inputPath)
-          .inputOptions([
-            '-re', // Read input at its native frame rate
-            '-fflags +genpts' // Generate missing PTS
-          ])
           .outputOptions([
             '-c copy',                // Copy streams without re-encoding (REMUX)
+            '-f hls',                 // HLS format
             '-hls_time 10',           // 10 second segments
             '-hls_list_size 6',       // Keep 6 segments in playlist
-            '-hls_flags delete_segments+append_list', // Delete old segments
-            '-f hls'                  // HLS format
+            '-hls_segment_filename', segmentPattern, // Explicit segment filename
+            '-y'                      // Overwrite output files
           ])
           .output(outputPlaylist);
 
