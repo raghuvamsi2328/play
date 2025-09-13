@@ -231,8 +231,25 @@ class TorrentService {
       console.log(`📂 Input path: ${inputPath}`);
       console.log(`📂 Output directory: ${outputDir}`);
       
-      // Ensure output directory exists
-      fileService.ensureDir(outputDir);
+      // Ensure both directories exist with proper error handling
+      try {
+        fileService.ensureDir(fileService.getStreamDir(streamId));
+        fileService.ensureDir(outputDir);
+        console.log(`✅ All directories created successfully`);
+      } catch (dirError) {
+        throw new Error(`Directory creation failed: ${dirError.message}`);
+      }
+      
+      // Verify input file exists
+      if (!require('fs').existsSync(inputPath)) {
+        console.log(`⏳ Waiting for input file to be created: ${inputPath}`);
+        // Wait a bit more for the file to be created
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        if (!require('fs').existsSync(inputPath)) {
+          throw new Error(`Input file still doesn't exist after waiting: ${inputPath}`);
+        }
+      }
       
       console.log(`🎬 Starting FFmpeg HLS conversion...`);
       

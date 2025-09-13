@@ -28,9 +28,25 @@ class FileService {
   }
 
   ensureDir(dirPath) {
-    if (!fs.existsSync(dirPath)) {
-      fs.mkdirSync(dirPath, { recursive: true });
-      console.log(`📁 Created directory: ${dirPath}`);
+    try {
+      if (!fs.existsSync(dirPath)) {
+        fs.mkdirSync(dirPath, { recursive: true, mode: 0o755 });
+        console.log(`📁 Created directory: ${dirPath}`);
+      }
+      
+      // Verify the directory was created and is writable
+      if (!fs.existsSync(dirPath)) {
+        throw new Error(`Failed to create directory: ${dirPath}`);
+      }
+      
+      // Test write permissions
+      const testFile = path.join(dirPath, '.write-test');
+      fs.writeFileSync(testFile, 'test');
+      fs.unlinkSync(testFile);
+      
+    } catch (error) {
+      console.error(`❌ Error creating/accessing directory ${dirPath}:`, error);
+      throw error;
     }
   }
 

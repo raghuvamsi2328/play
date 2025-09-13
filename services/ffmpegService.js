@@ -14,8 +14,20 @@ class FFmpegService {
         console.log(`📥 Input: ${inputPath}`);
         console.log(`📤 Output: ${outputDir}`);
 
+        // Ensure the input file exists
+        if (!require('fs').existsSync(inputPath)) {
+          throw new Error(`Input file does not exist: ${inputPath}`);
+        }
+
+        // Create and verify output directory
+        require('fs-extra').ensureDirSync(outputDir);
+        console.log(`✅ Output directory verified: ${outputDir}`);
+
         const outputPlaylist = path.join(outputDir, 'playlist.m3u8');
-        const segmentFilename = path.join(outputDir, 'segment%03d.ts');
+        const segmentPattern = path.join(outputDir, 'segment%03d.ts');
+
+        console.log(`📝 Playlist path: ${outputPlaylist}`);
+        console.log(`📹 Segment pattern: ${segmentPattern}`);
 
         const command = ffmpeg(inputPath)
           .inputOptions([
