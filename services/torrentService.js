@@ -183,6 +183,8 @@ class TorrentService {
   async startFFmpegConversion(streamId, videoFile) {
     try {
       console.log(`🔄 Starting FFmpeg conversion for stream ${streamId}`);
+      console.log(`📁 Video file: ${videoFile.name}`);
+      console.log(`📊 File size: ${this.formatFileSize(videoFile.length)}`);
       
       // Wait for some data to be available
       await this.waitForFileData(videoFile);
@@ -190,8 +192,13 @@ class TorrentService {
       const inputPath = path.join(fileService.getStreamDir(streamId), videoFile.name);
       const outputDir = fileService.getHLSDir(streamId);
       
+      console.log(`📂 Input path: ${inputPath}`);
+      console.log(`📂 Output directory: ${outputDir}`);
+      
       // Ensure output directory exists
       fileService.ensureDir(outputDir);
+      
+      console.log(`🎬 Starting FFmpeg HLS conversion...`);
       
       ffmpegService.convertToHLS(streamId, inputPath, outputDir)
         .then(() => {
@@ -212,9 +219,16 @@ class TorrentService {
   async waitForFileData(file, minBytes = 1024 * 1024) { // Wait for 1MB
     return new Promise((resolve) => {
       const checkData = () => {
-        if (file.downloaded >= minBytes) {
+        const currentDownloaded = file.downloaded || 0;
+        const fileSize = file.length || 0;
+        console.log(`📊 File download status: ${this.formatFileSize(currentDownloaded)} / ${this.formatFileSize(fileSize)} (${Math.round((currentDownloaded / fileSize) * 100)}%)`);
+        
+        // If file is fully downloaded or we have enough data, proceed
+        if (currentDownloaded >= fileSize || currentDownloaded >= minBytes) {
+          console.log(`✅ Sufficient data available for FFmpeg conversion`);
           resolve();
         } else {
+          console.log(`⏳ Waiting for more data... need ${this.formatFileSize(minBytes - currentDownloaded)} more`);
           setTimeout(checkData, 1000);
         }
       };
