@@ -20,11 +20,34 @@ class FFmpegService {
         }
 
         // Create and verify output directory
-        require('fs-extra').ensureDirSync(outputDir);
-        console.log(`✅ Output directory verified: ${outputDir}`);
+        const fs = require('fs');
+        const fsExtra = require('fs-extra');
+        
+        console.log(`🔍 Checking output directory: ${outputDir}`);
+        
+        // Ensure directory exists with multiple methods
+        try {
+          fsExtra.ensureDirSync(outputDir);
+          
+          // Double-check with native fs
+          if (!fs.existsSync(outputDir)) {
+            fs.mkdirSync(outputDir, { recursive: true, mode: 0o755 });
+          }
+          
+          // Verify it's actually a directory
+          const stats = fs.statSync(outputDir);
+          if (!stats.isDirectory()) {
+            throw new Error(`Output path exists but is not a directory: ${outputDir}`);
+          }
+          
+          console.log(`✅ Output directory verified: ${outputDir}`);
+        } catch (dirError) {
+          console.error(`❌ Directory creation failed:`, dirError);
+          throw new Error(`Cannot create output directory: ${outputDir} - ${dirError.message}`);
+        }
 
-        const outputPlaylist = path.join(outputDir, 'playlist.m3u8');
-        const segmentPattern = path.join(outputDir, 'segment%03d.ts');
+        const outputPlaylist = path.resolve(outputDir, 'playlist.m3u8');
+        const segmentPattern = path.resolve(outputDir, 'segment%03d.ts');
 
         console.log(`📝 Playlist path: ${outputPlaylist}`);
         console.log(`📹 Segment pattern: ${segmentPattern}`);

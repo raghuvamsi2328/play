@@ -3,7 +3,9 @@ const path = require('path');
 
 class FileService {
   constructor() {
-    this.tempDir = path.join(__dirname, '..', 'temp');
+    // Use /tmp in Docker containers, or fall back to relative path
+    this.tempDir = process.env.NODE_ENV === 'production' ? '/tmp/streamer' : path.join(__dirname, '..', 'temp');
+    console.log(`📁 Using temp directory: ${this.tempDir}`);
     this.ensureDir(this.tempDir);
   }
 
@@ -29,20 +31,39 @@ class FileService {
 
   ensureDir(dirPath) {
     try {
-      if (!fs.existsSync(dirPath)) {
-        fs.mkdirSync(dirPath, { recursive: true, mode: 0o755 });
-        console.log(`📁 Created directory: ${dirPath}`);
+      // Validate the path
+      if (!dirPath || typeof dirPath !== 'string') {
+        throw new Error(`Invalid directory path: ${dirPath}`);
+      }
+      
+      // Resolve the path to handle any .. or . references
+      const resolvedPath = path.resolve(dirPath);
+      console.log(`📁 Ensuring directory exists: ${resolvedPath}`);
+      
+      if (!fs.existsSync(resolvedPath)) {
+        fs.mkdirSync(resolvedPath, { recursive: true, mode: 0o755 });
+        console.log(`📁 Created directory: ${resolvedPath}`);
       }
       
       // Verify the directory was created and is writable
-      if (!fs.existsSync(dirPath)) {
-        throw new Error(`Failed to create directory: ${dirPath}`);
+      if (!fs.existsSync(resolvedPath)) {
+        throw new Error(`Failed to create directory: ${resolvedPath}`);
+      }
+      
+      const stats = fs.statSync(resolvedPath);
+      if (!stats.isDirectory()) {
+        throw new Error(`Path exists but is not a directory: ${resolvedPath}`);
       }
       
       // Test write permissions
-      const testFile = path.join(dirPath, '.write-test');
-      fs.writeFileSync(testFile, 'test');
-      fs.unlinkSync(testFile);
+      const testFile = path.join(resolvedPath, '.write-test-' + Date.now());
+      try {
+        fs.writeFileSync(testFile, 'test');
+        fs.unlinkSync(testFile);
+        console.log(`✅ Directory verified writable: ${resolvedPath}`);
+      } catch (writeError) {
+        throw new Error(`Directory not writable: ${resolvedPath} - ${writeError.message}`);
+      }
       
     } catch (error) {
       console.error(`❌ Error creating/accessing directory ${dirPath}:`, error);

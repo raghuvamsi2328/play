@@ -21,8 +21,11 @@ RUN npm install --only=production
 COPY . .
 
 # Create temp directory and public directory with proper permissions
-RUN mkdir -p /app/temp /app/public && \
-    chmod 755 /app/temp /app/public
+RUN mkdir -p /tmp/streamer /app/public && \
+    chmod 755 /tmp/streamer /app/public
+
+# Set environment variable for production
+ENV NODE_ENV=production
 
 # Expose port
 EXPOSE 3000
