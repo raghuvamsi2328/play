@@ -1,4 +1,4 @@
-FROM node:18-alpine
+FROM node:20-alpine
 
 # Install FFmpeg and other dependencies
 RUN apk add --no-cache \
@@ -15,7 +15,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install Node.js dependencies
-RUN npm ci --only=production
+RUN npm install --only=production
 
 # Copy application code
 COPY . .
